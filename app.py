@@ -51,8 +51,8 @@ st.markdown("""
     }
     
     /* Typography & Headers */
-    h1, h2, h3, h4, h5, h6, p, span, div {
-        color: var(--tv-text) !important;
+    h1, h2, h3, h4, h5, h6, p, span {
+        color: var(--tv-text);
         font-family: -apple-system, BlinkMacSystemFont, "Trebuchet MS", Roboto, Ubuntu, sans-serif !important;
     }
     
@@ -80,8 +80,7 @@ st.markdown("""
     /* DataFrame overriding */
     .stDataFrame { font-size: 0.85rem; }
     
-    /* Hide Streamlit elements */
-    header { visibility: hidden; }
+    /* Streamlit overrides */
     #MainMenu { visibility: hidden; }
     footer { visibility: hidden; }
 </style>
