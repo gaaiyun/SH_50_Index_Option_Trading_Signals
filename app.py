@@ -342,8 +342,7 @@ def render_4pane_chart(
                     xaxis_index=[0, 1, 2, 3],
                     pos_bottom="1%", height="4%",
                     filler_color="rgba(41,98,255,0.08)",
-                    border_color="#2a2e39",
-                    handle_style=opts.HandleStyleOpts(color="#2962ff")
+                    border_color="#2a2e39"
                 )
             ],
             tooltip_opts=opts.TooltipOpts(
@@ -554,9 +553,9 @@ with st.sidebar:
     st.markdown("<hr style='border-color:#2a2e39; margin:10px 0;'>", unsafe_allow_html=True)
     push_enabled = st.checkbox("启用 PushPlus 推送", value=bool(PUSHPLUS_TOKEN))
     if push_enabled and not PUSHPLUS_TOKEN:
-        st.warning("Token 未配置。请在 `.streamlit/secrets.toml` 中设置 `pushplus_token`。")
+        st.warning("Token 未配置，请在 .streamlit/secrets.toml 中设置 pushplus_token")
     elif push_enabled:
-        st.success("推送通道激活", icon="📲")
+        st.success("推送通道已激活")
     st.markdown("<hr style='border-color:#2a2e39; margin:10px 0;'>", unsafe_allow_html=True)
     force_refresh = st.button("强制更新数据总线", use_container_width=True)
 
@@ -569,7 +568,7 @@ df_etf, source_etf = get_etf_510050(force_refresh=force_refresh)
 options_df, opt_source = get_options_data(force_refresh=force_refresh)
 
 if force_refresh:
-    st.toast("数据总线更新指令已发送", icon="🔄")
+    st.toast("数据总线更新指令已发送")
 
 if df_etf is None or df_etf.empty:
     st.error("无法加载上证50ETF基准数据，请检查网络或点击'强制更新数据总线'。")
@@ -666,11 +665,11 @@ with col_label:
     st.markdown("<div style='font-size:0.9rem; font-weight:500; color:#d1d4dc;'>全景联动图: K线·布林带·BSADF·量能·HV/IV</div>", unsafe_allow_html=True)
 with col_legend:
     st.markdown(
-        "<div style='font-size:0.75rem; color:#787b86; text-align:right; padding-top:4px;'>"
-        "<span style='color:#2962ff;'>━</span> EMA5 &nbsp;"
-        "<span style='color:#ff9800;'>━</span> EMA20 &nbsp;"
-        "<span style='color:#9c27b0;'>⋯</span> BB(20,2) &nbsp;"
-        "<span style='color:#f23645;'>⋯</span> VaR±95%</div>",
+        "<div style='font-size:0.72rem; color:#787b86; text-align:right; padding-top:4px; font-family:monospace;'>"
+        "<span style='color:#2962ff;'>---</span> EMA5 &nbsp;"
+        "<span style='color:#ff9800;'>---</span> EMA20 &nbsp;"
+        "<span style='color:#9c27b0;'>- -</span> BB(20,2) &nbsp;"
+        "<span style='color:#f23645;'>- -</span> VaR 95%</div>",
         unsafe_allow_html=True
     )
 
@@ -679,8 +678,8 @@ if chart:
     st.session_state.pop('chart_error', None)
     st_pyecharts(chart, height="900px")
 else:
-    err = st.session_state.get('chart_error', '未知错误，请查看 Streamlit 日志')
-    with st.expander("⚠️ 图表渲染失败 — 点击查看错误详情", expanded=True):
+    err = st.session_state.get('chart_error', 'Unknown error, check Streamlit logs')
+    with st.expander("Chart render error detail", expanded=True):
         st.code(err, language="python")
 
 st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
