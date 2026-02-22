@@ -1,61 +1,85 @@
-# VolGuard Pro: 上证 50 期权全景风控系统 (v5.0)
+# VolGuard Pro: 上证50期权全景风控系统
 
-[![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)](https://www.python.org/) 
+[![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)](https://www.python.org/)
 [![Streamlit](https://img.shields.io/badge/Streamlit-App-FF4B4B.svg)](https://streamlit.io/)
-[![Quant](https://img.shields.io/badge/Quant-ShortVol-yellow.svg)]()
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-> 本系统为期权卖方（Short Volatility）构建的防御级量化监控终端。策略核心逻辑：**寻找局部泡沫吃取时间价值，严守尾部黑天鹅极值防线。**系统以滚动 BSADF 单位根测试捕捉单边极值，以三重分布假定的 GARCH 预测构建隔夜 VaR 绝对警戒线。
-
----
-
-## 核心特性 (v5.0)
-
-1. **毫秒级闪电开盘 (SWR 架构)**：彻底重构数据流，采用 Stale-While-Revalidate (SWR) 守护线程机制。UI 渲染与网络拉取完全解耦。看板始终瞬间（<100ms）加载本地急速缓存，同时后台静默向 `akshare`/`yfinance` 轮询最新数据并落盘。无阻塞，零假死。
-2. **TradingView 级全景三联窗格 (3-Pane Grid)**：
-    *   **Pane 1 (主量价与防线)**：K 线主图叠加 GARCH VaR 95% 动态压力/支撑带，直观标识价格生死线。
-    *   **Pane 2 (泡沫警示系统)**：独立的 BSADF 评估统计量时间序列与 95% 显著水位红线。
-    *   **Pane 3 (动能刻度)**：严格根据日线收盘价阴阳染色的 Volume 当期成交量。
-3. **极简金融电报词族**：去除一切主观模糊表达与过度包装（“AI 味”），文本指令全盘转换为诸如：“执行: 建立空仓”、“状态: 观望戒备” 等专业交易终端的极简指令集。
-4. **期权深度雷达矩阵**：结合高阶 Pandas Styler 的深度资金盘口表。实时解算当前合约的虚值空间及距离 VaR 95% 止损线的具体缓冲厚度，并通过红黄绿极差色带引导视觉决策，规避非理性抗单。
+> 期权卖方 (Short Volatility) 量化防御终端。策略逻辑：以 BSADF 捕捉单边泡沫窗口卖出虚值期权吃取时间价值，以三重分布 GARCH VaR 构建双向止损防线，严守尾部风险。
 
 ---
 
-## 极速启动手册
+## v6.0 核心特性
 
-### 步骤一：环境对齐
-请确保使用 Python 3.9+ 并在纯净虚拟环境中安装专属武器库：
-```bash
-pip install streamlit pandas numpy akshare arch statsmodels scipy yfinance pyecharts streamlit-echarts
-```
+### 数据层：SWR 异步缓存架构
+- UI 渲染与网络拉取完全解耦，看板始终 <100ms 加载本地缓存
+- 后台守护线程向 yfinance / akshare 静默轮询并落盘
+- `threading.Semaphore(1)` 限制并发，防止线程爆炸
+- ETF 日线 12h TTL，期权盘口 60s TTL
 
-### 步骤二：指令点火
-打开终端进入本项目的根目录，运行看板渲染引擎：
+### 算法层：三大核心引擎
+| 引擎 | 方法 | 用途 |
+|------|------|------|
+| BSADF | Phillips, Shi & Yu (2015) 滚动极值 ADF | 检测价格序列是否进入单边泡沫区 |
+| Multi-GARCH VaR | Normal + Skew-t + 历史极端缓冲 | 预测次日价格极值边界，构建止损防线 |
+| HV vs IV | 30日历史已实现波动率 vs 期权链平均隐含波动率 | 判断波动率溢价，确认卖方 Edge |
+
+### 视图层：4-Pane ECharts 全景联动
+| 窗格 | 内容 | 高度 |
+|------|------|------|
+| Pane 0 | K线 + EMA(5,20) + Bollinger Bands(20,2) + VaR 95% 通道 | 46% |
+| Pane 1 | BSADF 统计量序列 + PSY 5% 临界值红线 | 12% |
+| Pane 2 | Volume 成交量 (阴阳染色) + 5日量能 MA | 12% |
+| Pane 3 | HV30 (绿) vs Avg IV (红) 波动率对比 | 11% |
+
+四窗格通过 DataZoom `xaxis_index=[0,1,2,3]` 实现同步联动缩放。
+
+### 安全层
+- Token/Secret 通过 `.streamlit/secrets.toml` 或环境变量注入，代码零明文
+- `.gitignore` 排除所有密钥文件
+
+---
+
+## 快速启动
+
+### 方式一：批处理一键启动
+双击 `启动看板.bat`，脚本会自动检查全量依赖并启动。
+
+### 方式二：命令行启动
 ```bash
-cd C:\Users\gaaiy\Desktop\CSI_50_Index_Option_Trading_Signals
+pip install -r requirements.txt
 streamlit run app.py
 ```
-终端将自动弹出浏览器直接进入 `http://localhost:8501/`。
+浏览器自动打开 `http://localhost:8501/`。
+
+### PushPlus 推送配置 (可选)
+在项目根目录创建 `.streamlit/secrets.toml`：
+```toml
+pushplus_token  = "your_token"
+pushplus_secret = "your_secret"
+```
 
 ---
 
-## 驾驶舱仪表盘速查
+## 看板操作速查
 
-### 1. 【系统状态指令】
-- 位于顶部核心数值卡片。当行情极值触发 BSADF 时，宣告“执行: 建立空仓”。若未达显著极值区间，将显示“状态: 观望戒备”，此时坚决不予入场，防止做空波动率被趋势粉碎。
+### 系统状态指令
+- **执行: 建立空仓** — BSADF 统计量突破 PSY 临界值，泡沫窗口开启
+- **状态: 观望戒备** — BSADF 未达显著区间，不入场
 
-### 2. 【VaR 95% 刚性防线】
-- GARCH 引擎预测的复合边界。如果系统输出 `±2.50%`，意味着您的持仓期权若距现价虚值空间小于 2.50%，即面临极高行权风险，**必须无条件清仓止损**。
+### VaR 双向防线
+- 面板显示 `Put` 和 `Call` 两个方向的 95% VaR 距离
+- 持仓期权虚值空间小于任一方向 VaR 值时，必须无条件止损
 
-### 3. 【三窗格高阶图表】
-- 聚焦副图的 BSADF Stats 橙色折线，当其向上穿透血红色的 95% 极值红线时，意味着市场单边泡沫进入极限发酵期，胜率窗口开启。
-
-### 4. 【深度虚值扫描雷达 (表格)】
-- 🟢 **绿底标识**：安全垫充沛，距离被击穿拥有巨大缓冲空间。
-- 🔴 **红字/红底标识**：已进入 GARCH 计算的危险射程内，禁止开新仓；若持有务必即发止损。
+### 期权扫描表三色标注
+- **绿色底纹**：深度虚值，VaR 缓冲 > 2%，安全垫充沛
+- **黄色字体**：VaR 缓冲 < 1%，接近警戒线
+- **红色字体**：虚值已低于止损线，禁止开仓 / 立即平仓
 
 ---
 
-## 关于底层数学架构开发
-欲深入打磨底层量化逻辑、调整三重 GARCH 分布模型极值边界或探索 SWR 异步机制的开发者，请详参本项目配套白皮书：
-*   算法内核与 UI 渲染技术解密：[`DEVELOPER.md`](DEVELOPER.md)
-*   系统风控参数与数据流约束：[`CONFIG.md`](CONFIG.md)
+## 技术文档
+- 算法原理与判断逻辑：[DEVELOPER.md](DEVELOPER.md)
+- 系统参数与数据流配置：[CONFIG.md](CONFIG.md)
+
+## 许可证
+[MIT License](LICENSE)
