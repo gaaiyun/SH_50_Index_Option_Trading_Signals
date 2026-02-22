@@ -6,3 +6,4 @@ arch
 statsmodels
 scipy
 requests
+yfinance
