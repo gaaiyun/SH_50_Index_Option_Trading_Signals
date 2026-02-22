@@ -124,9 +124,12 @@ st.markdown("""
     /* Section divider */
     .section-divider { border-top: 1px solid var(--tv-border); margin: 22px 0; }
 
-    /* Streamlit chrome */
+    /* Streamlit chrome — hide default header bar and footer */
     #MainMenu { visibility: hidden; }
     footer { visibility: hidden; }
+    [data-testid="stHeader"] { background-color: transparent !important; border-bottom: none !important; }
+    [data-testid="stToolbar"] { visibility: hidden !important; }
+    section[data-testid="stSidebar"] > div:first-child { padding-top: 0; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -147,13 +150,23 @@ _BSADF_LOCK = threading.Semaphore(1)
 # ══════════════════════════════════════════════════════
 # SWR 缓存工具函数
 # ══════════════════════════════════════════════════════
-def load_local_cache(filename: str, is_timeseries: bool = False) -> pd.DataFrame | None:
+def load_local_cache(filename: str, is_timeseries: bool = False):
     filepath = os.path.join(DATA_DIR, filename)
     if not os.path.exists(filepath):
         return None
     try:
         if is_timeseries:
-            return pd.read_csv(filepath, index_col=0, parse_dates=True)
+            df = pd.read_csv(filepath, index_col=0, parse_dates=True)
+            # ── 修正 yfinance MultiIndex 列名 ─────────────────
+            # yfinance >= 0.2 有时以 ('Close', '510050.SS') 形式保存列名
+            new_cols = {}
+            for c in df.columns:
+                name = c[0] if isinstance(c, tuple) else str(c)
+                # 去掉括号等冗余字符
+                name = str(c).strip("()'\"").split(",")[0].strip().strip("'")
+                new_cols[c] = name
+            df.rename(columns=new_cols, inplace=True)
+            return df
         return pd.read_csv(filepath)
     except Exception as e:
         logger.warning(f"Cache read failed [{filename}]: {e}")
@@ -190,7 +203,7 @@ def _fetch_etf_bg():
     finally:
         _ETF_LOCK.release()
 
-def get_etf_510050(force_refresh: bool = False) -> tuple[pd.DataFrame | None, str]:
+def get_etf_510050(force_refresh: bool = False):
     if force_refresh or is_cache_expired("etf_510050.csv", 43200):
         threading.Thread(target=_fetch_etf_bg, daemon=True).start()
     df = load_local_cache("etf_510050.csv", is_timeseries=True)
@@ -217,7 +230,7 @@ def _fetch_options_bg():
     finally:
         _OPT_LOCK.release()
 
-def get_options_data(force_refresh: bool = False) -> tuple[pd.DataFrame | None, str]:
+def get_options_data(force_refresh: bool = False):
     if force_refresh or is_cache_expired("options_50.csv", 60):
         threading.Thread(target=_fetch_options_bg, daemon=True).start()
     df = load_local_cache("options_50.csv")
@@ -523,8 +536,10 @@ def render_4pane_chart(
 
     except Exception as e:
         import traceback
-        logger.error(f"Chart render failed: {traceback.format_exc()}")
-        return None
+        tb = traceback.format_exc()
+        logger.error(f"Chart render failed: {tb}")
+        # 将错误存入 session_state 供 UI 展示
+        st.session_state['chart_error'] = f"{type(e).__name__}: {e}"
 
 # ══════════════════════════════════════════════════════
 # 主界面
@@ -661,9 +676,12 @@ with col_legend:
 
 chart = render_4pane_chart(df_etf, bsadf_result, var_95, options_df)
 if chart:
+    st.session_state.pop('chart_error', None)
     st_pyecharts(chart, height="900px")
 else:
-    st.warning("图表生成失败，请检查数据完整性。")
+    err = st.session_state.get('chart_error', '未知错误，请查看 Streamlit 日志')
+    with st.expander("⚠️ 图表渲染失败 — 点击查看错误详情", expanded=True):
+        st.code(err, language="python")
 
 st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
 
