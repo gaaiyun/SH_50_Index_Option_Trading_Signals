@@ -1,332 +1,64 @@
-# 中证50股指期货期权量化策略 - 开发技术说明
+# 上证50ETF期权量化大屏 - 开发者技术与算法原理白皮书
 
-## 一、项目概述
-
-### 1.1 策略背景
-
-本策略是一套经典的**做空波动率(Short Volatility)**策略，通过卖出深度虚值期权来赚取时间价值（Theta）。策略的核心特点是结合了宏观泡沫检验、高频波动率监控以及多种GARCH模型进行严格的尾部风险管理。
-
-### 1.2 策略目标
-
-- 赚取期权时间价值
-- 严格控制尾部风险
-- 预期年化收益：5-8%
+本文档面向对该衍生品量化大屏进行二次开发、算法重构的工程师与量化研究员。详细阐述了底层的纯数学逻辑与技术实现手段。
 
 ---
 
-## 二、数据源
+## 一、核心引擎与目录架构
 
-### 2.1 主要数据源
+项目极度内聚，数学计算核心被完全封装剥离，UI负责解耦呈现：
+*   `app.py`: Streamlit 应用主干，负责数据 I/O 编排、异步状态缓存管理、Echarts 高级图形构建以及数据渲染器 (Dataframe Styler)。
+*   `strategy/indicators.py`: 纯量化算法内核大类 `StrategyIndicators` 所在地。
 
-| 数据类型 | 数据源 | API函数 |
-|----------|--------|---------|
-| 指数日线 | 东方财富 | `stock_zh_index_daily_em()` |
-| 期货合约 | 东方财富 | `futures_contract_info_cffex()` |
-| 期权数据 | 新浪财经 | `option_sse_daily_sina()` |
-| A股实时 | 东方财富 | `stock_zh_a_spot_em()` |
-
-### 2.2 数据获取
-
-```python
-import akshare as ak
-import os
-
-# 设置代理
-os.environ['HTTP_PROXY'] = 'http://127.0.0.1:7890'
-os.environ['HTTPS_PROXY'] = 'http://127.0.0.1:7890'
-
-# 获取中证50指数数据
-index_data = ak.stock_zh_index_daily_em(symbol="000016")
-
-# 获取期货合约列表
-futures_data = ak.futures_contract_info_cffex()
-
-# 获取期权数据
-options_data = ak.option_sse_daily_sina()
-```
+### 核心数值体系依赖包:
+*   **arch**: 实现多分布族 GARCH 波动预测的核心。
+*   **statsmodels**: 执行时间序列高级分析，底层调用 `adfuller` 实现严谨单位根检验。
+*   **scipy**: 操作极值分布的逆累积分布函数 (PPF)。
 
 ---
 
-## 三、依赖包
+## 二、数学防雷区：三大核心指标的底层抽象
 
-### 3.1 核心依赖
+本策略是一段“在波动率悬崖边跳舞”的卖方算法逻辑，因此量化基柱构筑极为厚重。
 
-| 包名 | 版本 | 用途 |
-|------|------|------|
-| Python | 3.12+ | 运行环境 |
-| akshare | 1.18.25 | 金融数据获取 |
-| pandas | 3.0.1 | 数据处理 |
-| numpy | 2.4.2 | 数值计算 |
-| arch | - | GARCH模型 |
-| statsmodels | - | 统计检验(ADF) |
-| streamlit | - | Web看板 |
+### 2.1 泡沫发生器：向后极大右尾 ADF 检验 (BSADF)
+**金融学动机**：资产价格如果在某段时间内出现远超指数增长的正反馈效应，传统单位根检验(ADF)难以实时追踪何时崩溃。BSADF (Backward Supremum ADF) 就是要在时序中寻找是否存在一个局部的爆炸性几何根 (Explosive Unit Root)。
 
-### 3.2 安装命令
+**技术实现路径 (`calculate_bsadf` 方法)**：
+1.  **序列转换**：将现货价格 $P_t$ 转化为自然对数价格序列 $p_t = \ln(P_t)$，捕捉对数价格发散。
+2.  **动态窗口滑动测算**：
+    设定最小滑窗 $r_0$ (100天)，当前节点 $t$。在 $t$ 之内，起始端点 $r_1$ 从 0 滑动到 $t-r_0$。
+3.  **统计量构建**：对每一个子样本区间执行经典的 Augmented Dickey-Fuller 检验（包含常数与趋势项 `regression='ct'`）。
+    $$ \Delta p_{\tau} = \alpha + \beta \tau + \gamma p_{\tau-1} + \sum_{k=1}^K \phi_k \Delta p_{\tau-k} + \varepsilon_\tau $$
+    这里我们关注的是 $\gamma > 0$（爆炸性过程，右尾检验），有别于传统检验平稳性的左尾（$\gamma < 0$）。
+4.  **上确界提取**：在所有滑动起点 $r_1$ 的 ADF-statistic (t-ratio) 结果中，提取最大值，即 $BSADF_t = \sup_{r_1} (ADF_{r_1}^{t})$。
+5.  **信号发出**：当当期的 $BSADF_t$ 超越通过蒙特卡洛或近似公式拟合的临界值限界表 (Critical Value) 时（当前代码简化采用统计学经验判限：大于截距平滑线或者绝对值 > 1.5），大屏K线上方点亮警告性黄色“泡沫泡泡”，允许卖方机构入场布局收割。
 
-```bash
-pip install akshare pandas numpy arch statsmodels streamlit
-```
+### 2.2 防护穹顶：多重分布假定的 GARCH VaR 评估
+**金融学动机**：传统历史波动率(HV)无法刻画金融市场的“波动率聚集”现象。我们要预测明天（T+1）到底会怎么波动，以挂出远离火线的极度虚值期权，并在破防之前认怂。
 
----
+**技术实现路径 (`calculate_garch_var` 方法)**：
+采用长周期窗（250天日线）进行对数收益率估计 $r_t = \ln(P_t / P_{t-1})$。核心在于求解波动率方差模型：
+$$ \sigma_t^2 = \omega + \alpha_1 \varepsilon_{t-1}^2 + \beta_1 \sigma_{t-1}^2 $$
+通过拟合，拿到模型对明天的预测方差 $\hat{\sigma}_{T+1}^2$。我们将并行展开三道分布防线（由松到紧）：
+1.  **sGARCH_norm (正规军)**：`dist='Normal'`。假定收益率震荡遵循正态分布。利用 `stats.norm.ppf` 取 95% 与 99% 的距离极值。
+2.  **sGARCH_skew (游击队防线)**：`dist='skewstudent'`。金融世界不是钟形曲线，而是“尖峰厚尾”。引入偏态斯图登特 t 分布 (Skewed t-distribution)，参数自动拟合其自由度 $\nu$ 与不对称系数 $\lambda$。得出的下行风险尾部比正规军宽敞很多。
+3.  **sGARCH_jump (终极隔离墙)**：真实世界有停牌跳空等非连续布朗运动因素。严格理论需要套用 Merton 跳跃扩散，结合泊松概率叠加。本代码从实战性能出发，提取基础 GARCH 模型预测值，粗暴施加 1.3~1.4 的跳跃风险乘数溢价，强行扩充出最后的末日 VaR 99% 分位数。
+*系统融合指令*：提取 `skew_95` 的预测震幅作为绝不能被打破的**绝对斩仓认怂线**。
 
-## 四、核心指标计算方法
+### 2.3 盘中熔断阀门：日内年化 Realized Volatility (RV)
+**金融学动机**：如果日线 GARCH 防御网在今天还没收盘前，盘中就已经发生千股跌停级别的黑天鹅巨浪怎么办？必须拥有日内的刻度雷达。
 
-### 4.1 BSADF (Backward Supremum Augmented Dickey-Fuller) 泡沫检验
-
-**目的**: 检测指数是否处于"泡沫期"或极端单边行情
-
-**原理**: 
-- 传统的ADF检验用于检验是否存在单位根（随机游走）
-- BSADF在传统基础上进行右侧检验，检测"爆炸性根"
-- 当统计量超过临界值时，认为存在泡沫
-
-**Python实现**:
-
-```python
-import numpy as np
-import statsmodels.tsa.stattools as ts
-
-def calculate_bsadf(returns, window=100):
-    """
-    计算BSADF泡沫检验统计量
-    
-    参数:
-        returns: 对数收益率序列
-        window: 滚动窗口大小
-    
-    返回:
-        bsadf_stat: BSADF统计量序列
-    """
-    bsadf_stats = []
-    
-    for i in range(window, len(returns)):
-        # 取滚动窗口数据
-        window_data = returns[i-window:i]
-        
-        # 执行ADF检验
-        try:
-            result = ts.adfuller(window_data, regression='ct', autolag='AIC')
-            # 右侧检验
-            adf_stat = result[0]
-            p_value = result[1]
-            
-            # 记录统计量
-            bsadf_stats.append({
-                'adf_stat': adf_stat,
-                'p_value': p_value
-            })
-        except:
-            bsadf_stats.append({'adf_stat': np.nan, 'p_value': np.nan})
-    
-    return bsadf_stats
-
-# 使用示例
-# index_data = ak.stock_zh_index_daily_em(symbol="000016")
-# index_data['returns'] = np.log(index_data['收盘']/index_data['收盘'].shift(1))
-# bsadf_result = calculate_bsadf(index_data['returns'].dropna())
-```
-
-### 4.2 GARCH波动率预测
-
-**目的**: 预测下一天的波动率σ，计算VaR分位数
-
-**原理**:
-- GARCH(1,1)模型: σ²_t = ω + α·ε²_{t-1} + β·σ²_{t-1}
-- 滚动250天数据拟合，预测t+1的σ
-- 使用不同分布假设计算VaR
-
-**Python实现**:
-
-```python
-import numpy as np
-import pandas as pd
-from arch import arch_model
-
-def calculate_garch_var(returns, confidence_levels=[0.90, 0.95, 0.99], window=250):
-    """
-    计算GARCH波动率预测和VaR分位数
-    
-    参数:
-        returns: 对数收益率序列
-        confidence_levels: 置信水平列表
-        window: 滚动窗口大小
-    
-    返回:
-        var_results: 各置信水平的VaR分位数
-    """
-    results = {}
-    
-    # 取最近window个数据
-    recent_returns = returns.dropna().iloc[-window:]
-    
-    # 1. 正态分布GARCH
-    model_norm = arch_model(recent_returns * 100, vol='Garch', p=1, q=1, dist='normal')
-    res_norm = model_norm.fit(disp='off')
-    forecast_norm = res_norm.forecast(horizon=1)
-    sigma_norm = np.sqrt(forecast_norm.variance.iloc[-1].values[0]) / 100
-    
-    for cl in confidence_levels:
-        z = np.abs(np.percentile(np.random.normal(0, 1, 10000), (1-cl)*100))
-        results[f'norm_{int(cl*100)}'] = z * sigma_norm
-    
-    # 2. 偏态t分布GARCH (非对称)
-    model_t = arch_model(recent_returns * 100, vol='Garch', p=1, q=1, dist='skewt')
-    res_t = model_t.fit(disp='off')
-    forecast_t = res_t.forecast(horizon=1)
-    sigma_t = np.sqrt(forecast_t.variance.iloc[-1].values[0]) / 100
-    
-    for cl in confidence_levels:
-        results[f'ghyp_{int(cl*100)}'] = sigma_t * 1.2  # 偏态t更厚尾
-    
-    # 3. 跳跃GARCH (简化版)
-    # 实际需要使用rugarch包，这里用增强波动率近似
-    sigma_jump = sigma_norm * 1.3  # 加入跳跃风险溢价
-    for cl in confidence_levels:
-        z = np.abs(np.percentile(np.random.normal(0, 1, 10000), (1-cl)*100))
-        results[f'jump_{int(cl*100)}'] = z * sigma_jump
-    
-    return results
-
-# 使用示例
-# index_data['returns'] = np.log(index_data['收盘']/index_data['收盘'].shift(1))
-# var_result = calculate_garch_var(index_data['returns'])
-# print(f"VaR 99%: {var_result['norm_99']:.4f}")
-```
-
-### 4.3 RV (Realized Volatility) 已实现波动率
-
-**目的**: 盘中实时监控波动率，用于高频止损
-
-**原理**:
-- RV = Σ r² (日内高频收益率的平方和)
-- 5分钟K线数据计算
-
-**Python实现**:
-
-def calculate_rv(prices):
-    """
-    计算已实现波动率RV
-    
-    参数:
-        prices: 价格序列（5分钟K线）
-    
-    返回:
-        rv: 已实现波动率
-    """
-    # 计算对数收益率
-    log_returns = np.log(prices / prices.shift(1)).dropna()
-    
-    # RV = Σ r²
-    rv = np.sqrt(np.sum(log_returns ** 2))
-    
-    return rv
-
-# 使用示例
-# 假设有5分钟K线数据
-# rv_5min = calculate_rv(kline_data['close'])
-# print(f"5分钟RV: {rv_5min:.6f}")
+**技术实现路径 (`calculate_daily_rv` 方法)**：
+1.  **高频抽样**：提取 5分钟 级别的盘中连续对数收益率 $r_{t, i}$。
+2.  **单日累加平滑**：盘中已实现方差 $RV_t^2 = \sum_{i=1}^n r_{t,i}^2$。
+3.  **年化投射**：$RV\_annualized = \sqrt{RV_t^2} \times \sqrt{250 \text{ 个交易日}}$（或根据高频频段补足常数乘子）。一旦这个盘中实时探测的 RV 超标，系统跳开隔夜评估，立刻指令离场。
 
 ---
 
-## 五、策略交易规则
+## 三、UI 渲染器原理 (Streamlit + Pyecharts)
 
-### 5.1 建仓条件
-
-| 条件 | 说明 |
-|------|------|
-| BSADF检验显著 | 泡沫期，单边行情可能衰竭 |
-| 卖出深度虚值 | 偏离现价11%以上的期权 |
-| 只做50指数 | 流动性好，尾部风险低 |
-
-### 5.2 止损条件
-
-| 条件 | 触发 | 操作 |
-|------|------|------|
-| 虚值程度不足 | 从11%跌至6.4% | 第二天开盘平仓 |
-| 高频RV异常 | 5分钟RV飙升 | 盘中立即平仓 |
-
-### 5.3 仓位管理
-
-- 每次只卖出一份期权
-- 不加杠杆
-- 严格止损
-
----
-
-## 六、风控体系
-
-### 6.1 低频风控（日线）
-
-```
-IF 当前虚值程度 < 6.4%:
-    第二天开盘平仓
-ELSE:
-    继续持仓
-```
-
-### 6.2 高频风控（盘中）
-
-```
-IF 5分钟RV > 阈值(历史均值+2倍标准差):
-    立即平仓
-ELSE:
-    继续持仓
-```
-
----
-
-## 七、Web看板
-
-### 7.1 技术栈
-
-- **前端**: Streamlit (Python Web框架)
-- **数据**: AkShare API
-- **图表**: Plotly/Altair
-
-### 7.2 功能模块
-
-1. **市场数据** - 实时指数、期货、期权数据
-2. **策略指标** - BSADF、GARCH、VaR、RV
-3. **交易信号** - 建仓/止损信号
-4. **策略说明** - 完整策略文档
-
-### 7.3 运行方式
-
-```bash
-cd "C:\Users\gaaiy\Desktop\中证50期权策略看板"
-streamlit run app.py
-```
-
----
-
-## 八、文件结构
-
-```
-中证50期权策略看板/
-├── app.py              # Streamlit看板主程序
-├── README.md           # 使用说明
-└── DEVELOPER.md       # 本开发技术文档
-```
-
----
-
-## 九、注意事项
-
-1. **网络要求**: 必须开启VPN/代理才能获取数据
-2. **数据延迟**: 部分数据可能有延迟
-3. **实盘风险**: 回测不等于实盘，请谨慎使用
-4. **模型局限**: GARCH模型对突发事件预测能力有限
-
----
-
-## 十、参考资料
-
-1. Tushare金融数据平台: https://tushare.pro/
-2. AkShare开源库: https://akshare.akfamily.xyz
-3. arch库文档: https://arch.readthedocs.io
-4. statsmodels库: https://www.statsmodels.org
-
----
-
-*文档版本: v1.0*
-*创建日期: 2026-02-22*
+*   **Pyecharts 双图层重叠算法 (Overlap)**：
+    为了将复杂的宏观数学指标具像化，我们在 K 线（`Kline` 实例）基础图层之上，将上文中提取出的时间轴完全对应的 $BSADF_t$ 数值序列进行遮罩判定 ($> cv$)。将所有不触发条件的刻度剔除为 `None`，触发暴跌/暴涨泡沫的时刻提取该日 K 线的最高价(High)并加高 1% 位置挂载一个 `Scatter` 实例点。
+*   **Styler 响应式表格**：
+    由于期权 T型报价是瞬间数据，`app.py` 内部运用了 pandas 的 `style.apply()`。遍历 DataFrame 中每一行，利用行内的【当前虚值深度%】字段与之前算出的系统变量 `var_95` 进行减法求差。根据这个**安全垫差额**的大小，动态灌入 CSS 渲染着色（如绿底大粗体提示非常安全，红底高危），使得交易员肉眼能够像玩射击游戏一样，快速找到“安全的高收益靶心合约”。
