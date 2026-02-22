@@ -341,8 +341,7 @@ def render_4pane_chart(
                     is_show=True, type_="slider",
                     xaxis_index=[0, 1, 2, 3],
                     pos_bottom="1%", height="4%",
-                    filler_color="rgba(41,98,255,0.08)",
-                    border_color="#2a2e39"
+                    range_start=60, range_end=100
                 )
             ],
             tooltip_opts=opts.TooltipOpts(
