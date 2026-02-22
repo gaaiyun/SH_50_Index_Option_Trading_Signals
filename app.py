@@ -12,6 +12,8 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import os
+import time
 from datetime import datetime
 from streamlit_echarts import st_pyecharts
 from pyecharts import options as opts
@@ -42,47 +44,99 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# ==================== 本地缓存管理 ====================
+DATA_DIR = "data"
+if not os.path.exists(DATA_DIR):
+    os.makedirs(DATA_DIR)
+
+def load_local_cache(filename: str, ttl_seconds: int):
+    """尝试加载本地缓存数据，检查是否过期"""
+    filepath = os.path.join(DATA_DIR, filename)
+    if os.path.exists(filepath):
+        mtime = os.path.getmtime(filepath)
+        if time.time() - mtime < ttl_seconds:
+            try:
+                # 针对带有datetime index的yfinance数据特殊处理
+                if 'etf' in filename:
+                    df = pd.read_csv(filepath, index_col=0, parse_dates=True)
+                else:
+                    df = pd.read_csv(filepath)
+                return df, True
+            except:
+                pass
+    return None, False
+
+def save_local_cache(df: pd.DataFrame, filename: str):
+    """保存数据到本地"""
+    filepath = os.path.join(DATA_DIR, filename)
+    try:
+        df.to_csv(filepath)
+    except Exception as e:
+        print(f"缓存写入失败: {e}")
+
 # ==================== 数据获取 ====================
 @st.cache_data(ttl=300)
-def get_etf_510050():
-    """获取上证50ETF (510050.SS)"""
+def get_etf_510050(force_refresh=False):
+    """获取上证50ETF (510050.SS)，带本地持久化降级"""
+    cache_file = "etf_510050.csv"
+    
+    if not force_refresh:
+        df, valid = load_local_cache(cache_file, 3600*12) # 日线数据理论上存活半天
+        if valid and not df.empty:
+            return df, "yfinance (本地缓存)"
+            
     try:
         import yfinance as yf
         t = yf.Ticker("510050.SS")
         df = t.history(period="3y")
         df.index = df.index.tz_localize(None)
-        return df, "yfinance"
+        if not df.empty:
+            save_local_cache(df, cache_file)
+        return df, "yfinance (在线刷新)"
     except Exception as e:
+        # 如果在线挂了，即使缓存过期也强行读取兜底
+        df, _ = load_local_cache(cache_file, 999999)
+        if df is not None:
+            return df, f"yfinance (网络异常，强行读取陈旧缓存)"
         return None, str(e)
 
-@st.cache_data(ttl=300)
-def get_options_data():
-    """
-    获取期权实时T型盘口 (akshare).
-    在境外云端服务器可能无法访问中国数据源，使用线程超时防止页面阻塞。
-    """
+@st.cache_data(ttl=60)
+def get_options_data(force_refresh=False):
+    """获取期权实时T型盘口，带1分钟防刷及本地持久化缓存"""
+    cache_file = "options_50.csv"
+    
+    if not force_refresh:
+        df, valid = load_local_cache(cache_file, 60) # 期权盘口1分钟内不重复拉取
+        if valid and not df.empty:
+            return df, "akshare (本地缓存)"
+            
     import threading
     result_holder = {"df": None, "error": None}
 
     def _fetch():
         try:
             import akshare as ak
-            df = ak.option_current_em()
-            result_holder["df"] = df
+            df_full = ak.option_current_em()
+            result_holder["df"] = df_full
         except Exception as e:
             result_holder["error"] = str(e)
 
     t = threading.Thread(target=_fetch, daemon=True)
     t.start()
-    t.join(timeout=8)          # 最多等 8 秒，保障页面加载体验
+    t.join(timeout=8)          # 最多等 8 秒
 
     if not t.is_alive() and result_holder["df"] is not None:
         df = result_holder["df"]
-        # 筛选标的名称包含 50ETF 或者代码以100开头的上交所期权
         df_50 = df[df['名称'].str.contains('50ETF') | df['代码'].str.startswith('100')].copy()
-        return df_50, "akshare"
+        if not df_50.empty:
+            save_local_cache(df_50, cache_file)
+        return df_50, "akshare (在线刷新)"
     else:
+        # 降级读取本地兜底
         err = result_holder["error"] if result_holder["error"] else "云端节点直连东财接口超时"
+        df, _ = load_local_cache(cache_file, 999999)
+        if df is not None:
+            return df, f"akshare (超时降级，强行读取陈旧缓存)"
         return None, f"获取失败: {err}"
 
 # ==================== 可视化库 ====================
@@ -159,15 +213,22 @@ with st.sidebar:
     push = st.checkbox("PushPlus 信号推送", value=False)
     if push:
         st.info("已启用实盘级推送")
+        
+    st.markdown("---")
+    st.subheader("数据管理")
+    force_refresh = st.button("🔄 强制更新所有数据源", use_container_width=True)
 
-st.markdown('<div class="main-title">上证50ETF期权 卖方高阶看板 (v4.0)</div>', unsafe_allow_html=True)
+st.markdown('<div class="main-title">上证50ETF期权 卖方高阶看板 (v4.1)</div>', unsafe_allow_html=True)
 st.markdown('<div class="sub-title">系统核心: 多重GARCH立体防御体系 | BSADF极值泡沫猎杀 | 日内RV高频止损截断</div>', unsafe_allow_html=True)
 
 # 获取数据
-df_etf, source = get_etf_510050()
-options_df, opt_source = get_options_data()
+df_etf, source_etf = get_etf_510050(force_refresh=force_refresh)
+options_df, opt_source = get_options_data(force_refresh=force_refresh)
 
-if df_etf is not None and len(df_etf) > 0:
+if force_refresh:
+    st.toast("数据源已向云端发起更新请求", icon="✅")
+
+if df_etf is not None and not df_etf.empty:
     prices = df_etf['Close']
     
     # 计算指标
@@ -282,4 +343,4 @@ if df_etf is not None and len(df_etf) > 0:
 else:
     st.error("❌ 无法获取 510050.SS 基础现价数据。请检查网络。")
 
-st.markdown(f"<div style='text-align:center; color:#555; margin-top:30px; font-size: 0.8rem;'>数据驱动引擎: yfinance + akshare | 记录时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</div>", unsafe_allow_html=True)
+st.markdown(f"<div style='text-align:center; color:#555; margin-top:30px; font-size: 0.8rem;'>数据驱动引擎: yfinance + akshare | {source_etf} | {opt_source} | 刷新策略: 磁盘持久化智能缓存机制</div>", unsafe_allow_html=True)
