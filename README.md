@@ -1,4 +1,4 @@
-# 中证50股指期货期权策略看板 - 使用说明
+# 上证50股指期货期权策略看板 - 使用说明
 
 ## 一、快速开始
 
@@ -21,7 +21,7 @@ pip install akshare pandas numpy arch statsmodels streamlit
 #### 步骤2: 启动看板
 
 ```bash
-cd "C:\Users\gaaiy\Desktop\中证50期权策略看板"
+cd "C:\Users\gaaiy\Desktop\上证50期权策略看板"
 streamlit run app.py
 ```
 
@@ -39,7 +39,7 @@ streamlit run app.py
 
 | 标签 | 功能 |
 |------|------|
-| 📈 市场数据 | 显示中证50指数、期货、期权数据 |
+| 📈 市场数据 | 显示上证50指数、期货、期权数据 |
 | 📊 策略指标 | 显示BSADF、GARCH、VaR、RV等核心指标 |
 | 🎯 交易信号 | 显示当前建仓/止损信号 |
 | 📋 策略说明 | 完整的策略文档 |
