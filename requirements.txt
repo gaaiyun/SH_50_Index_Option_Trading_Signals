@@ -1,0 +1,8 @@
+streamlit
+pandas
+numpy
+akshare
+arch
+statsmodels
+scipy
+requests
