@@ -50,6 +50,14 @@ st.markdown("""
         color: var(--tv-text);
     }
     
+    /* Sidebar Overrides */
+    [data-testid="stSidebar"] {
+        background-color: var(--tv-panel) !important;
+    }
+    [data-testid="stSidebar"] * {
+        color: var(--tv-text) !important;
+    }
+    
     /* Typography & Headers */
     h1, h2, h3, h4, h5, h6, p, span {
         color: var(--tv-text);
