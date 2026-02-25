@@ -247,6 +247,7 @@ def get_etf_510050(force_refresh: bool = False):
 def _fetch_options_sync():
     """同步拉取期权数据 (阻塞, 用于首次冷启动)"""
     import akshare as ak
+    last_error = None
     for attempt in range(3):
         try:
             df_full = ak.option_current_em()
@@ -257,11 +258,12 @@ def _fetch_options_sync():
                 if not df_50.empty:
                     save_local_cache(df_50, "options_50.csv")
                     logger.info(f"Options sync fetch OK: {len(df_50)} contracts (attempt {attempt+1})")
-                    return df_50
+                    return df_50, "Loaded"
         except Exception as e:
+            last_error = e
             logger.warning(f"Options sync fetch attempt {attempt+1}/3 failed: {e}")
             time.sleep(2)
-    return None
+    return None, f"Akshare 抓取失败: {last_error}"
 
 def _fetch_options_bg():
     """后台异步刷新 (SWR)"""
@@ -287,22 +289,24 @@ def _cached_options_fetch():
     """st.cache_data 层: Cloud 内存缓存 2min"""
     df = load_local_cache("options_50.csv")
     if df is not None:
-        return df
+        return df, "Cache loaded"
     return _fetch_options_sync()
 
 def get_options_data(force_refresh: bool = False):
-    df = _cached_options_fetch()
+    res = _cached_options_fetch()
+    df, msg = res[0], res[1]
 
     local_df = load_local_cache("options_50.csv")
     if local_df is not None and len(local_df) > (len(df) if df is not None else 0):
         df = local_df
+        msg = "Local cache loaded"
 
     if force_refresh or is_cache_expired("options_50.csv", 60):
         threading.Thread(target=_fetch_options_bg, daemon=True).start()
 
     if df is not None and not df.empty:
         return (df, "loaded")
-    return (None, "no data")
+    return (None, msg)
 
 # ══════════════════════════════════════════════════════
 # 缓存的重计算函数 — GARCH (TTL 1h)
@@ -852,7 +856,7 @@ if options_df is not None and not options_df.empty:
         st.error(f"期权表格解析异常: {e}")
         st.dataframe(options_df.head(50))
 else:
-    st.warning("期权盘口数据暂未就绪，系统后台正在异步拉取 akshare 接口…")
+    st.warning(f"期权盘口数据暂未就绪。数据接口状态: {opt_source}")
 
 # ── 底部状态栏 ────────────────────────────────────────
 st.markdown(
