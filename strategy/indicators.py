@@ -52,8 +52,8 @@ class StrategyIndicators:
             bsadf_series = pd.Series(index=log_prices.index, dtype=float)
             sup_adf = -np.inf
 
-            # 计算最近 200 根 K 线的 BSADF (保证副图不空白)
-            start_search_idx = max(window, n - 200)
+            # 将最近 200 根缩减为 20 根 K 线的 BSADF (极大缓解初次加载的卡顿，由几分钟降低至几秒)
+            start_search_idx = max(window, n - 20)
 
             for t_idx in range(start_search_idx, n):
                 current_sup_adf = -np.inf
