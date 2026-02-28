@@ -7,8 +7,8 @@ scipy>=1.12.0,<2.0
 requests>=2.31.0,<3.0
 yfinance>=0.2.36
 pyecharts>=2.0.0,<3.0
-# 必须 <0.5：0.5.x 移除 st_pyecharts 且与 Streamlit Cloud 不兼容；若未安装则 app 用 pyecharts.render_embed() 回退
-streamlit-echarts>=0.4.0,<0.5
+# app.py 已实现惰性导入+异常回退，兼容 0.4.x (st_pyecharts) 和 0.5.x (无 st_pyecharts 时用 render_embed)
+streamlit-echarts>=0.4.0
 simplejson>=3.19.0,<4.0
 
 # akshare 作为期权数据的 fallback 数据源

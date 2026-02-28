@@ -49,10 +49,12 @@ def _get_option_months_sina(underlying: str = "510050") -> List[str]:
         resp.raise_for_status()
         data = resp.json()
         result = data.get("result", {}).get("data", {})
-        # 这里不强依赖 cateList，只取 contractMonth
         months = result.get("contractMonth", []) or []
-        # 保险起见做一次过滤
         months = [m for m in months if isinstance(m, str) and m.isdigit()]
+        if not months:
+            logger.warning(f"Sina getStockName returned empty months, raw data keys: {list(result.keys())}")
+        else:
+            logger.info(f"Sina months OK: {months}")
         return months
     except Exception as e:
         logger.warning(f"Sina getStockName failed: {e}")
@@ -75,6 +77,8 @@ def _get_option_codes_sina(underlying: str, month: str) -> Tuple[List[str], List
         call_resp = requests.get(call_url, headers=SINA_HEADERS, timeout=8)
         call_resp.encoding = "gbk"
         call_codes = re.findall(r"CON_OP_\d+", call_resp.text)
+        if not call_codes:
+            logger.warning(f"Sina {month} call codes empty, resp length: {len(call_resp.text)}")
     except Exception as e:
         logger.warning(f"Sina call code list failed for {month}: {e}")
 
@@ -82,6 +86,8 @@ def _get_option_codes_sina(underlying: str, month: str) -> Tuple[List[str], List
         put_resp = requests.get(put_url, headers=SINA_HEADERS, timeout=8)
         put_resp.encoding = "gbk"
         put_codes = re.findall(r"CON_OP_\d+", put_resp.text)
+        if not put_codes:
+            logger.warning(f"Sina {month} put codes empty, resp length: {len(put_resp.text)}")
     except Exception as e:
         logger.warning(f"Sina put code list failed for {month}: {e}")
 
@@ -109,7 +115,8 @@ def _get_option_detail_sina(codes: List[str]) -> pd.DataFrame:
         return pd.DataFrame()
 
     rows = []
-    for line in resp.text.strip().split("\n"):
+    lines = resp.text.strip().split("\n")
+    for line in lines:
         if "=" not in line:
             continue
         key, value = line.split("=", 1)
@@ -144,6 +151,8 @@ def _get_option_detail_sina(codes: List[str]) -> pd.DataFrame:
             # 单行解析失败直接跳过
             continue
 
+    if not rows:
+        logger.warning(f"Sina detail parsed 0 rows from {len(lines)} lines, {len(codes)} codes requested")
     return pd.DataFrame(rows)
 
 
