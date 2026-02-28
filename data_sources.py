@@ -200,7 +200,68 @@ def fetch_50etf_options_sina() -> tuple[pd.DataFrame, str]:
     return df, "Sina options loaded"
 
 
-__all__ = ["fetch_50etf_options_sina", "add_implied_volatility"]
+def fetch_50etf_options_yfinance() -> tuple[pd.DataFrame, str]:
+    """
+    从 yfinance 获取 50ETF 期权链（仅作 fallback，国内标的在 Yahoo 上可能无数据或不全）。
+
+    返回: (DataFrame, source_msg)，列名与 Sina 一致：代码/名称/最新价/行权价/涨跌幅/成交量/持仓量/买入价/卖出价
+    """
+    try:
+        import yfinance as yf
+    except Exception as e:
+        logger.warning(f"yfinance import failed: {e}")
+        return pd.DataFrame(), "yfinance 未安装或不可用"
+
+    for symbol in ["510050.SS", "510050"]:
+        try:
+            ticker = yf.Ticker(symbol)
+            dates = getattr(ticker, "options", None)
+            if not dates:
+                continue
+            all_calls, all_puts = [], []
+            for exp in dates[:6]:
+                try:
+                    chain = ticker.option_chain(exp)
+                    if chain.calls is not None and not chain.calls.empty:
+                        c = chain.calls.copy()
+                        c["类型"], c["到期"] = "认购", exp
+                        all_calls.append(c)
+                    if chain.puts is not None and not chain.puts.empty:
+                        p = chain.puts.copy()
+                        p["类型"], p["到期"] = "认沽", exp
+                        all_puts.append(p)
+                except Exception:
+                    continue
+            if not all_calls and not all_puts:
+                continue
+
+            frames = []
+            for df_list in [all_calls, all_puts]:
+                if not df_list:
+                    continue
+                raw = pd.concat(df_list, ignore_index=True)
+                raw = raw.rename(columns={
+                    "contractSymbol": "代码", "strike": "行权价", "lastPrice": "最新价",
+                    "bid": "买入价", "ask": "卖出价", "volume": "成交量", "openInterest": "持仓量"
+                })
+                if "代码" not in raw.columns and "contractSymbol" in raw.columns:
+                    raw["代码"] = raw["contractSymbol"]
+                raw["名称"] = raw["代码"] if "代码" in raw.columns else ""
+                raw["涨跌幅"] = raw["percentChange"] if "percentChange" in raw.columns else 0.0
+                if "impliedVolatility" in raw.columns:
+                    raw["隐含波动率"] = raw["impliedVolatility"] * 100
+                frames.append(raw)
+            
+            if not frames:
+                continue
+            out = pd.concat(frames, ignore_index=True)
+            return out, "yfinance options loaded"
+        except Exception as e:
+            logger.warning(f"yfinance options for {symbol} failed: {e}")
+    return pd.DataFrame(), "yfinance 无 50ETF 期权数据"
+
+
+__all__ = ["fetch_50etf_options_sina", "fetch_50etf_options_yfinance", "add_implied_volatility"]
 
 
 def _bs_call_price(S, K, T, r, sigma):

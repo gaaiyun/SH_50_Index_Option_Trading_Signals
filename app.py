@@ -27,13 +27,12 @@ from datetime import datetime
 from pyecharts import options as opts
 from pyecharts.charts import Kline, Line, Grid, Bar
 
-# 图表渲染：优先 streamlit_echarts 0.4 (st_pyecharts)，不可用时用 pyecharts 内嵌 HTML，避免 Cloud 上 0.5.x 无 st_pyecharts 导致崩溃
-try:
-    from streamlit_echarts import st_pyecharts as _st_pyecharts
-    def _render_chart(chart, height="900px"):
-        _st_pyecharts(chart, height=height)
-except ImportError:
-    def _render_chart(chart, height="900px"):
+# 图表渲染：不在模块级导入 streamlit_echarts，避免 Cloud 上 0.5.x 无 st_pyecharts 时在 import 阶段崩溃
+def _render_chart(chart, height="900px"):
+    try:
+        from streamlit_echarts import st_pyecharts
+        st_pyecharts(chart, height=height)
+    except Exception:
         try:
             h = 900
             if isinstance(height, str) and "px" in height:
@@ -46,7 +45,7 @@ except ImportError:
             st.components.v1.html(chart.render_embed(), height=900, scrolling=False)
 
 from strategy.indicators import StrategyIndicators
-from data_sources import fetch_50etf_options_sina, add_implied_volatility
+from data_sources import fetch_50etf_options_sina, fetch_50etf_options_yfinance, add_implied_volatility
 
 # ══════════════════════════════════════════════════════
 # 日志配置
@@ -313,6 +312,16 @@ def _fetch_options_sync():
             logger.warning(f"Options sync fetch attempt {attempt+1}/3 via Akshare failed: {e}")
             time.sleep(2)
 
+    # 3) yfinance 作为可选 fallback（海外环境有时可拿到 50ETF 期权链）
+    try:
+        df_yf, src_yf = fetch_50etf_options_yfinance()
+        if df_yf is not None and not df_yf.empty:
+            save_local_cache(df_yf, "options_50.csv")
+            logger.info(f"Options sync fetch OK via yfinance: {len(df_yf)} contracts")
+            return df_yf, src_yf
+    except Exception as e:
+        logger.warning(f"yfinance options fetch failed: {e}")
+
     return None, f"Sina & Akshare 抓取均失败: {last_error}"
 
 def _fetch_options_bg():
@@ -330,7 +339,7 @@ def _fetch_options_bg():
         except Exception as e:
             logger.warning(f"Options bg refresh via Sina failed: {e}")
 
-        # 若新浪失败，再尝试 akshare 作为降级方案
+        # 若新浪失败，再尝试 akshare
         try:
             import akshare as ak  # type: ignore
             df_full = ak.option_current_em()
@@ -341,8 +350,18 @@ def _fetch_options_bg():
                 if not df_50.empty:
                     save_local_cache(df_50, "options_50.csv")
                     logger.info(f"Options bg refresh OK via Akshare: {len(df_50)} contracts")
+                    return
         except Exception as e:
             logger.warning(f"Options bg fetch via Akshare failed: {e}")
+
+        # 最后尝试 yfinance
+        try:
+            df_yf, _ = fetch_50etf_options_yfinance()
+            if df_yf is not None and not df_yf.empty:
+                save_local_cache(df_yf, "options_50.csv")
+                logger.info(f"Options bg refresh OK via yfinance: {len(df_yf)} contracts")
+        except Exception as e:
+            logger.warning(f"Options bg fetch via yfinance failed: {e}")
     finally:
         _OPT_LOCK.release()
 
