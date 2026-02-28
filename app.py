@@ -183,8 +183,15 @@ def load_local_cache(filename: str, is_timeseries: bool = False):
                     name = str(c).strip("()'\"").split(",")[0].strip().strip("'")
                     new_cols[c] = name
                 df.rename(columns=new_cols, inplace=True)
+                if df.empty:
+                    logger.warning(f"Cache [{filename}] is empty")
+                    return None
                 return df
-            return pd.read_csv(filepath)
+            df = pd.read_csv(filepath)
+            if df.empty:
+                logger.warning(f"Cache [{filename}] is empty")
+                return None
+            return df
     except Exception as e:
         logger.warning(f"Cache read failed [{filename}]: {e}")
         return None
@@ -385,9 +392,15 @@ def get_options_data(force_refresh: bool = False):
     if force_refresh or is_cache_expired("options_50.csv", 60):
         threading.Thread(target=_fetch_options_bg, daemon=True).start()
 
-    if df is not None and not df.empty:
-        return (df, "loaded")
-    return (None, msg)
+    # 智能降级：即使所有数据源失败，旧缓存也比没有数据好
+    if df is None or df.empty:
+        stale_df = load_local_cache("options_50.csv")
+        if stale_df is not None and not stale_df.empty:
+            logger.warning("All sources failed, using stale cache as fallback")
+            return (stale_df, "stale_cache")
+        return (None, msg)
+    
+    return (df, msg)
 
 # ══════════════════════════════════════════════════════
 # 缓存的重计算函数 — GARCH (TTL 1h)
