@@ -212,6 +212,7 @@ def fetch_50etf_options_sina() -> tuple[pd.DataFrame, str]:
         "卖价": "卖出价",
     }
     df = df.rename(columns=rename_map)
+    df["option_type"] = df["类型"]  # 添加英文列名以便测试和标准化
 
     return df, "Sina options loaded"
 
@@ -271,6 +272,7 @@ def fetch_50etf_options_yfinance() -> tuple[pd.DataFrame, str]:
             if not frames:
                 continue
             out = pd.concat(frames, ignore_index=True)
+            out["option_type"] = out["类型"]  # 添加英文列名以便测试和标准化
             return out, "yfinance options loaded"
         except Exception as e:
             logger.warning(f"yfinance options for {symbol} failed: {e}")
