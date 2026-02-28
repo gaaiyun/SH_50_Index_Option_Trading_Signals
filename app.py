@@ -24,9 +24,26 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 from datetime import datetime
-from streamlit_echarts import st_pyecharts
 from pyecharts import options as opts
 from pyecharts.charts import Kline, Line, Grid, Bar
+
+# 图表渲染：优先 streamlit_echarts 0.4 (st_pyecharts)，不可用时用 pyecharts 内嵌 HTML，避免 Cloud 上 0.5.x 无 st_pyecharts 导致崩溃
+try:
+    from streamlit_echarts import st_pyecharts as _st_pyecharts
+    def _render_chart(chart, height="900px"):
+        _st_pyecharts(chart, height=height)
+except ImportError:
+    def _render_chart(chart, height="900px"):
+        try:
+            h = 900
+            if isinstance(height, str) and "px" in height:
+                try:
+                    h = int(height.replace("px", "").strip())
+                except Exception:
+                    pass
+            st.components.v1.html(chart.render_embed(), height=h, scrolling=False)
+        except Exception:
+            st.components.v1.html(chart.render_embed(), height=900, scrolling=False)
 
 from strategy.indicators import StrategyIndicators
 from data_sources import fetch_50etf_options_sina
@@ -795,7 +812,7 @@ with col_legend:
 chart = render_4pane_chart(df_etf, bsadf_result, var_95, options_df)
 if chart:
     st.session_state.pop('chart_error', None)
-    st_pyecharts(chart, height="900px")
+    _render_chart(chart, height="900px")
 else:
     err = st.session_state.get('chart_error', 'Unknown error, check Streamlit logs')
     with st.expander("Chart render error detail", expanded=True):
