@@ -24,8 +24,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 from datetime import datetime
-import json as _json
-from streamlit_echarts import st_echarts
+from streamlit_echarts import st_pyecharts
 from pyecharts import options as opts
 from pyecharts.charts import Kline, Line, Grid, Bar
 
@@ -796,7 +795,7 @@ with col_legend:
 chart = render_4pane_chart(df_etf, bsadf_result, var_95, options_df)
 if chart:
     st.session_state.pop('chart_error', None)
-    st_echarts(options=_json.loads(chart.dump_options()), height="900px")
+    st_pyecharts(chart, height="900px")
 else:
     err = st.session_state.get('chart_error', 'Unknown error, check Streamlit logs')
     with st.expander("Chart render error detail", expanded=True):
