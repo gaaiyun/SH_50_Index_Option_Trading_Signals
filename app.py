@@ -400,7 +400,9 @@ def get_options_data(force_refresh: bool = False):
             return (stale_df, "stale_cache")
         return (None, msg)
     
-    return (df, msg)
+    # 成功路径与 get_etf_510050 保持一致，统一归一化为 "loaded"
+    # （错误信息仍由上面的 return (None, msg) 透传给页脚/警告；stale_cache 已在上方 early-return 单独保留）
+    return (df, "loaded")
 
 # ══════════════════════════════════════════════════════
 # 缓存的重计算函数 — GARCH (TTL 1h)
