@@ -29,13 +29,5 @@ jobs:
         env:
           PYTHONIOENCODING: utf-8
         # 仅运行离线单元测试（online 标记的真实网络用例在 CI 中跳过）。
-        # 以下两个用例在引入 CI 之前就已是 main 上的既有失败（测试断言与现有实现的约定不一致，
-        # 修复需改动业务行为或测试逻辑，超出本次"加 CI"的范围），故先在 CI 中隔离：
-        #   - tests/test_app.py::test_get_options_data_returns_loaded_when_cache_has_data
-        #     （期望 msg == "loaded"，实现返回 "Cache loaded"）
-        #   - tests/test_data_sources.py::TestGetOptionMonthsSina::test_empty_on_request_failure
-        #     （期望请求失败时返回 []，retry_with_backoff 在重试耗尽后会重新抛出异常）
         run: |
-          python -m pytest tests/ -q -m "not online" \
-            --deselect "tests/test_app.py::test_get_options_data_returns_loaded_when_cache_has_data" \
-            --deselect "tests/test_data_sources.py::TestGetOptionMonthsSina::test_empty_on_request_failure"
+          python -m pytest tests/ -q -m "not online"

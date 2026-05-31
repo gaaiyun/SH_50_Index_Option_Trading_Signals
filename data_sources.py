@@ -68,11 +68,13 @@ def get_random_headers(referer: str = None) -> dict:
 
 
 @retry_with_backoff(max_retries=3, base_delay=0.5)
-def _get_option_months_sina(underlying: str = "510050") -> List[str]:
+def _get_option_months_sina_raw(underlying: str = "510050") -> List[str]:
     """
-    从新浪获取可用期权月份列表。
+    从新浪获取可用期权月份列表（底层实现）。
 
-    返回类似 ["2503", "2504", "2506", ...] 的字符串列表。
+    返回类似 ["2503", "2504", "2506", ...] 的字符串列表；
+    网络持续失败时由 retry_with_backoff 在重试耗尽后抛出异常，
+    交由 _get_option_months_sina 包装层兜底。
     """
     url = (
         "http://stock.finance.sina.com.cn/futures/api/openapi.php/"
@@ -97,6 +99,22 @@ def _get_option_months_sina(underlying: str = "510050") -> List[str]:
     else:
         logger.info(f"Sina months OK: {months}")
     return months
+
+
+def _get_option_months_sina(underlying: str = "510050") -> List[str]:
+    """
+    新浪期权月份列表（对外稳定接口）。
+
+    在 _get_option_months_sina_raw 之上加一层兜底：重试耗尽（网络始终失败）时返回 []，
+    而非向上抛异常。这与同模块 _get_option_codes_sina / _get_option_detail_sina
+    "失败即返回空" 的约定一致；调用方 fetch_50etf_options_sina 依赖此约定，
+    在月份为空时给出 "Sina 合约月份获取失败" 提示而非崩溃。
+    """
+    try:
+        return _get_option_months_sina_raw(underlying)
+    except Exception as e:
+        logger.warning(f"Sina getStockName failed after retries: {e}")
+        return []
 
 
 def _get_option_codes_sina(underlying: str, month: str) -> Tuple[List[str], List[str]]:
