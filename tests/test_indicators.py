@@ -201,3 +201,21 @@ class TestCalculateMarketExposure:
         })
         result = indicators.calculate_market_exposure(df, spot=2.45)
         assert result["max_pain_strike"] > 0
+
+    def test_uses_type_column_when_name_lacks_call_put_marker(self, indicators):
+        """真实新浪缓存里名称可能不含方向，应回退到 类型/option_type 列判断认购认沽"""
+        df = pd.DataFrame({
+            '名称': ['510050', '510050'],
+            '类型': ['认购', '认沽'],
+            'option_type': ['认购', '认沽'],
+            '行权价': [2.55, 2.45],
+            '隐含波动率': [18.0, 20.0],
+            '持仓量': [10000, 12000]
+        })
+
+        result = indicators.calculate_market_exposure(df, spot=2.50)
+
+        assert "error" not in result
+        assert result["total_oi_call"] == 10000
+        assert result["total_oi_put"] == 12000
+        assert result["gex_net"] != 0

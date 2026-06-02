@@ -21,7 +21,13 @@ logger = logging.getLogger(__name__)
 class StrategyIndicators:
     """策略指标计算类 — 纯无状态算法内核"""
 
-    def calculate_bsadf(self, prices: pd.Series, window: int = 100) -> Dict:
+    def calculate_bsadf(
+        self,
+        prices: pd.Series,
+        window: int = 100,
+        max_eval_points: int = 40,
+        start_step: int = 8
+    ) -> Dict:
         """
         计算 BSADF 泡沫测试 (Backward Supremum ADF)
 
@@ -31,6 +37,8 @@ class StrategyIndicators:
         参数:
             prices: 价格序列
             window: 最小滑窗 (r0)，默认 100
+            max_eval_points: 最近最多评估多少个右端点；最终时点始终完整评估
+            start_step: 历史曲线采样时的左端点步长，用于控制看板响应时间
 
         返回:
             dict: {adf_stat, is_significant, cv, series}
@@ -52,12 +60,16 @@ class StrategyIndicators:
             bsadf_series = pd.Series(index=log_prices.index, dtype=float)
             sup_adf = -np.inf
 
-            start_search_idx = max(window, n - 200)
+            start_search_idx = max(window, n - max_eval_points)
+            eval_points = list(range(start_search_idx, n))
 
-            for t_idx in range(start_search_idx, n):
+            for t_idx in eval_points:
                 current_sup_adf = -np.inf
+                left_candidates = range(max(0, t_idx - 250), t_idx - window + 1)
+                if t_idx != n - 1 and start_step > 1:
+                    left_candidates = range(max(0, t_idx - 250), t_idx - window + 1, start_step)
                 # 右尾滑动起始点: 从 (t - 250) 到 (t - window) 保证计算充分
-                for s_idx in range(max(0, t_idx - 250), t_idx - window + 1):
+                for s_idx in left_candidates:
                     window_data = log_prices.iloc[s_idx: t_idx + 1]
                     try:
                         # regression='ct' 含常数+趋势项, 与 PSY 2015 标准一致
@@ -418,13 +430,23 @@ class StrategyIndicators:
             if df.empty:
                 return {'gex_net': 0.0, 'dex_net': 0.0, 'error': 'No valid data'}
 
-            def _type(name):
-                if isinstance(name, str):
-                    if '购' in name: return 'call'
-                    if '沽' in name: return 'put'
+            def _type(row):
+                values = []
+                for col in ['名称', '类型', 'option_type', '期权类型']:
+                    if col in row.index:
+                        values.append(str(row[col]))
+                text = " ".join(values).upper()
+                if '购' in text or '认购' in text or 'CALL' in text:
+                    return 'call'
+                if '沽' in text or '认沽' in text or 'PUT' in text:
+                    return 'put'
+                if 'C' in text and 'P' not in text:
+                    return 'call'
+                if 'P' in text and 'C' not in text:
+                    return 'put'
                 return 'unknown'
 
-            df['type'] = df['名称'].apply(_type)
+            df['type'] = df.apply(_type, axis=1)
             df = df[df['type'].isin(['call', 'put'])]
 
             from datetime import datetime, timedelta

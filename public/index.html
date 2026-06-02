@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VolGuard Pro Snapshot</title>
+  <link rel="icon" href="data:,">
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b0f12;
+      --panel: #141a1f;
+      --panel-2: #18232a;
+      --line: #28343d;
+      --text: #e4e8ec;
+      --muted: #8b98a5;
+      --cyan: #4fc3f7;
+      --amber: #f2b84b;
+      --green: #45d18a;
+      --red: #ff626f;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      letter-spacing: 0;
+    }
+    main { max-width: 1180px; margin: 0 auto; padding: 28px 18px 42px; }
+    header {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 16px;
+      align-items: end;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 18px;
+      margin-bottom: 18px;
+    }
+    h1 { margin: 0 0 8px; font-size: 30px; font-weight: 720; }
+    .sub { color: var(--muted); margin: 0; font-size: 14px; }
+    button {
+      background: #10161a;
+      border: 1px solid var(--line);
+      color: var(--text);
+      padding: 10px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    button:hover { border-color: var(--cyan); }
+    .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+    .card {
+      background: linear-gradient(180deg, var(--panel-2), var(--panel));
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 16px;
+      min-height: 112px;
+    }
+    .label { color: var(--muted); font-size: 12px; text-transform: uppercase; margin-bottom: 10px; }
+    .value { font-size: 25px; font-weight: 700; }
+    .detail { color: var(--muted); font-size: 13px; margin-top: 8px; }
+    .cyan { color: var(--cyan); } .amber { color: var(--amber); } .green { color: var(--green); } .red { color: var(--red); }
+    .wide { margin-top: 12px; display: grid; grid-template-columns: 1.4fr .9fr; gap: 12px; }
+    .chart { height: 260px; display: flex; align-items: flex-end; gap: 3px; border-top: 1px solid var(--line); padding-top: 20px; }
+    .bar { flex: 1; background: linear-gradient(180deg, var(--cyan), #1b617b); min-height: 4px; border-radius: 2px 2px 0 0; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { border-bottom: 1px solid var(--line); padding: 9px 6px; text-align: right; }
+    th:first-child, td:first-child { text-align: left; }
+    th { color: var(--muted); font-weight: 500; }
+    .foot { margin-top: 14px; color: var(--muted); font-size: 12px; text-align: right; }
+    @media (max-width: 860px) {
+      header, .wide { grid-template-columns: 1fr; }
+      .grid { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 560px) {
+      main { padding: 18px 12px 32px; }
+      .grid { grid-template-columns: 1fr; }
+      h1 { font-size: 24px; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>VolGuard Pro Snapshot</h1>
+        <p class="sub">上证50ETF期权风控快照。实时计算在 Streamlit 主站完成，本页读取定时 JSON 快照。</p>
+      </div>
+      <button id="refresh">刷新快照</button>
+    </header>
+
+    <section class="grid">
+      <div class="card"><div class="label">510050.SS</div><div id="spot" class="value">--</div><div id="change" class="detail">--</div></div>
+      <div class="card"><div class="label">System Signal</div><div id="signal" class="value amber">--</div><div id="action" class="detail">--</div></div>
+      <div class="card"><div class="label">VaR 95</div><div id="var" class="value red">--</div><div id="vol" class="detail">--</div></div>
+      <div class="card"><div class="label">GEX / DEX</div><div id="exposure" class="value cyan">--</div><div id="pain" class="detail">--</div></div>
+    </section>
+
+    <section class="wide">
+      <div class="card">
+        <div class="label">Price Series</div>
+        <div id="chart" class="chart"></div>
+      </div>
+      <div class="card">
+        <div class="label">Snapshot Status</div>
+        <div id="status" class="detail">Loading...</div>
+      </div>
+    </section>
+
+    <section class="card" style="margin-top:12px">
+      <div class="label">Option Chain Sample</div>
+      <table>
+        <thead><tr><th>合约</th><th>最新价</th><th>行权价</th><th>IV</th><th>持仓</th></tr></thead>
+        <tbody id="options"></tbody>
+      </table>
+    </section>
+
+    <div id="foot" class="foot"></div>
+  </main>
+
+  <script>
+    const fmt = (n, d = 2) => Number.isFinite(Number(n)) ? Number(n).toFixed(d) : "--";
+    async function loadSnapshot() {
+      const res = await fetch(`data/latest.json?ts=${Date.now()}`, { cache: "no-store" });
+      const data = await res.json();
+      document.getElementById("spot").textContent = fmt(data.market.spot, 3);
+      const change = Number(data.market.change_pct || 0);
+      const changeEl = document.getElementById("change");
+      changeEl.textContent = `${change >= 0 ? "+" : ""}${fmt(change)}%`;
+      changeEl.className = `detail ${change >= 0 ? "green" : "red"}`;
+      document.getElementById("signal").textContent = data.risk.signal || "--";
+      document.getElementById("action").textContent = data.risk.action || "--";
+      document.getElementById("var").textContent = `Put ${fmt(data.risk.var_95_put)}% / Call ${fmt(data.risk.var_95_call)}%`;
+      document.getElementById("vol").textContent = `HV30 ${fmt(data.risk.hv30)}% · IV ${fmt(data.risk.iv_avg)}%`;
+      document.getElementById("exposure").textContent = `${fmt(data.exposure.gex_net)}B / ${fmt(data.exposure.dex_net)}B`;
+      document.getElementById("pain").textContent = `Max pain ${fmt(data.exposure.max_pain, 3)}`;
+      document.getElementById("status").innerHTML =
+        `Generated: ${data.generated_at}<br>ETF as-of: ${data.market.data_asof || "--"}<br>Status: ${JSON.stringify(data.market.data_status)}`;
+      document.getElementById("foot").textContent = `schema v${data.schema_version}`;
+
+      const chart = document.getElementById("chart");
+      const closes = data.price_series.map(p => Number(p.close)).filter(Number.isFinite);
+      const min = Math.min(...closes), max = Math.max(...closes);
+      chart.innerHTML = data.price_series.map(p => {
+        const h = Math.max(4, ((Number(p.close) - min) / Math.max(0.0001, max - min)) * 220);
+        return `<div class="bar" title="${p.date}: ${fmt(p.close, 3)}" style="height:${h}px"></div>`;
+      }).join("");
+
+      const rows = (data.options || []).slice(0, 12).map(o =>
+        `<tr><td>${o["名称"] || o["代码"] || "--"}</td><td>${fmt(o["最新价"], 4)}</td><td>${fmt(o["行权价"], 3)}</td><td>${fmt(o["隐含波动率"])}</td><td>${fmt(o["持仓量"], 0)}</td></tr>`
+      );
+      document.getElementById("options").innerHTML = rows.join("") || `<tr><td colspan="5">暂无期权快照</td></tr>`;
+    }
+    document.getElementById("refresh").addEventListener("click", loadSnapshot);
+    loadSnapshot().catch(err => {
+      document.getElementById("status").textContent = `Snapshot load failed: ${err.message}`;
+    });
+  </script>
+</body>
+</html>

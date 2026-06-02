@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 VolGuard Pro — 上证50ETF期权全景风控系统 (v6.1)
@@ -46,6 +46,7 @@ def _render_chart(chart, height="900px"):
 
 from strategy.indicators import StrategyIndicators
 from data_sources import fetch_50etf_options_sina, fetch_50etf_options_yfinance, add_implied_volatility
+from dashboard_core import RiskSettings, compute_dashboard_metrics, infer_option_type
 
 # ══════════════════════════════════════════════════════
 # 日志配置
@@ -79,22 +80,23 @@ st.set_page_config(
 st.markdown("""
 <style>
     :root {
-        --tv-bg: #131722;
-        --tv-panel: #1e222d;
-        --tv-border: #2a2e39;
-        --tv-text: #d1d4dc;
-        --tv-text-dim: #787b86;
-        --tv-green: #089981;
-        --tv-red: #f23645;
-        --tv-blue: #2962ff;
-        --tv-yellow: #f5a623;
-        --tv-purple: #9c27b0;
+        --tv-bg: #0b0f12;
+        --tv-panel: #141a1f;
+        --tv-panel-hi: #18232a;
+        --tv-border: #28343d;
+        --tv-text: #e4e8ec;
+        --tv-text-dim: #8b98a5;
+        --tv-green: #45d18a;
+        --tv-red: #ff626f;
+        --tv-blue: #4fc3f7;
+        --tv-yellow: #f2b84b;
+        --tv-purple: #b9a0ff;
     }
 
     .stApp { background-color: var(--tv-bg); color: var(--tv-text); }
 
     /* Sidebar */
-    [data-testid="stSidebar"] { background-color: var(--tv-panel) !important; }
+    [data-testid="stSidebar"] { background: linear-gradient(180deg, #11181d, #0d1216) !important; border-right: 1px solid var(--tv-border); }
     [data-testid="stSidebar"] * { color: var(--tv-text) !important; }
     [data-testid="stSidebar"] .stSlider > div > div > div { background: var(--tv-blue) !important; }
 
@@ -105,25 +107,53 @@ st.markdown("""
     }
 
     /* Page title */
-    .main-title { font-size: 1.6rem; font-weight: 700; color: #ffffff !important; margin-bottom: 2px; letter-spacing: 0.3px;}
-    .sub-title { font-size: 0.82rem; color: var(--tv-text-dim) !important; margin-bottom: 20px; }
+    .terminal-header {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 16px;
+        align-items: end;
+        border-bottom: 1px solid var(--tv-border);
+        padding: 4px 0 14px;
+        margin-bottom: 16px;
+    }
+    .main-title { font-size: 1.72rem; font-weight: 760; color: #ffffff !important; margin-bottom: 3px; letter-spacing: 0;}
+    .sub-title { font-size: 0.82rem; color: var(--tv-text-dim) !important; margin-bottom: 0; }
+    .status-strip {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: 8px;
+        min-width: 280px;
+    }
+    .status-pill {
+        border: 1px solid var(--tv-border);
+        background: #10161a;
+        border-radius: 999px;
+        padding: 5px 9px;
+        font-size: 0.72rem;
+        color: var(--tv-text-dim);
+        white-space: nowrap;
+    }
+    .status-pill.live { color: var(--tv-green); border-color: rgba(69,209,138,0.38); }
 
     /* Metric cards */
     .metric-card {
-        background-color: var(--tv-panel);
-        padding: 16px 20px;
-        border-radius: 4px;
+        background: linear-gradient(180deg, var(--tv-panel-hi), var(--tv-panel));
+        padding: 15px 18px;
+        border-radius: 6px;
         border: 1px solid var(--tv-border);
         border-left: 3px solid var(--tv-border);
         text-align: left;
+        min-height: 118px;
+        box-shadow: 0 10px 28px rgba(0,0,0,0.18);
     }
     .metric-card.card-green { border-left-color: var(--tv-green); }
     .metric-card.card-red   { border-left-color: var(--tv-red); }
     .metric-card.card-blue  { border-left-color: var(--tv-blue); }
     .metric-card.card-orange{ border-left-color: var(--tv-yellow); }
 
-    .metric-title { font-size: 0.75rem; color: var(--tv-text-dim) !important; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.8px; }
-    .metric-value { font-size: 1.45rem; font-weight: 600; letter-spacing: 0.1px; }
+    .metric-title { font-size: 0.72rem; color: var(--tv-text-dim) !important; margin-bottom: 9px; text-transform: uppercase; letter-spacing: 0; }
+    .metric-value { font-size: 1.42rem; font-weight: 710; letter-spacing: 0; line-height: 1.2; }
     .metric-sub   { font-size: 0.72rem; color: var(--tv-text-dim) !important; margin-top: 5px; }
 
     /* Color utilities */
@@ -146,9 +176,15 @@ st.markdown("""
 
     /* Section divider */
     .section-divider { border-top: 1px solid var(--tv-border); margin: 22px 0; }
+    .section-label { font-size:0.78rem; font-weight:650; color:var(--tv-text); margin:14px 0 10px; text-transform:uppercase; letter-spacing:0; }
 
     /* Streamlit chrome adjustments */
     section[data-testid="stSidebar"] > div:first-child { padding-top: 0; }
+
+    @media (max-width: 900px) {
+        .terminal-header { grid-template-columns: 1fr; }
+        .status-strip { justify-content: flex-start; min-width: 0; }
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -706,314 +742,321 @@ def render_4pane_chart(
         # 将错误存入 session_state 供 UI 展示
         st.session_state['chart_error'] = f"{type(e).__name__}: {e}"
 
-# ══════════════════════════════════════════════════════
-# 主界面
-# ══════════════════════════════════════════════════════
-with st.sidebar:
-    st.markdown("<div style='font-size:1.1rem; font-weight:600; color:#d1d4dc; padding:8px 0 12px;'>风控参数</div>", unsafe_allow_html=True)
-    otm        = st.slider("目标建仓虚值 (%)", 5, 25, 11, help="BSADF 触发后, 卖出偏离现价至少此值的虚值合约")
-    stop_loss  = st.slider("强制止损虚值 (%)", 2, 12, 6,  help="期权虚值空间低于此值立刻买回平仓")
-    st.markdown("<hr style='border-color:#2a2e39; margin:10px 0;'>", unsafe_allow_html=True)
-    st.markdown("<div style='font-size:0.85rem; font-weight:500; color:#d1d4dc;'>高频预警参数</div>", unsafe_allow_html=True)
-    rv_threshold = st.slider("RV 年化异常阈值 (%)", 15, 60, 30, help="盘中日化 RV 超出此值触发即时平仓预警")
-    st.markdown("<hr style='border-color:#2a2e39; margin:10px 0;'>", unsafe_allow_html=True)
-    push_enabled = st.checkbox("启用 PushPlus 推送", value=bool(PUSHPLUS_TOKEN))
-    if push_enabled and not PUSHPLUS_TOKEN:
-        st.warning("Token 未配置，请在 .streamlit/secrets.toml 中设置 pushplus_token")
-    elif push_enabled:
-        st.success("推送通道已激活")
-    st.markdown("<hr style='border-color:#2a2e39; margin:10px 0;'>", unsafe_allow_html=True)
-    force_refresh = st.button("强制更新数据总线", use_container_width=True)
 
-# ── 标题 ─────────────────────────────────────────────
-st.markdown('<div class="main-title">VolGuard Pro: 上证50期权风控雷达</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-title">Multi-GARCH VaR (PSY临界值) | BSADF 泡沫测试 | Greeks GEX/DEX | HV/IV 对比 | SWR 实时缓存框架 (v6.1)</div>', unsafe_allow_html=True)
+def main() -> None:
+    # ══════════════════════════════════════════════════════
+    # 主界面
+    # ══════════════════════════════════════════════════════
+    with st.sidebar:
+        st.markdown("<div style='font-size:1.1rem; font-weight:600; color:#d1d4dc; padding:8px 0 12px;'>风控参数</div>", unsafe_allow_html=True)
+        otm        = st.slider("目标建仓虚值 (%)", 5, 25, 11, help="BSADF 触发后, 卖出偏离现价至少此值的虚值合约")
+        stop_loss  = st.slider("强制止损虚值 (%)", 2, 12, 6,  help="期权虚值空间低于此值立刻买回平仓")
+        st.markdown("<hr style='border-color:#2a2e39; margin:10px 0;'>", unsafe_allow_html=True)
+        st.markdown("<div style='font-size:0.85rem; font-weight:500; color:#d1d4dc;'>高频预警参数</div>", unsafe_allow_html=True)
+        rv_threshold = st.slider("RV 年化异常阈值 (%)", 15, 60, 30, help="盘中日化 RV 超出此值触发即时平仓预警")
+        st.markdown("<hr style='border-color:#2a2e39; margin:10px 0;'>", unsafe_allow_html=True)
+        push_enabled = st.checkbox("启用 PushPlus 推送", value=bool(PUSHPLUS_TOKEN))
+        if push_enabled and not PUSHPLUS_TOKEN:
+            st.warning("Token 未配置，请在 .streamlit/secrets.toml 中设置 pushplus_token")
+        elif push_enabled:
+            st.success("推送通道已激活")
+        st.markdown("<hr style='border-color:#2a2e39; margin:10px 0;'>", unsafe_allow_html=True)
+        force_refresh = st.button("强制更新数据总线", use_container_width=True)
 
-# ── 数据加载 ──────────────────────────────────────────
-df_etf, source_etf = get_etf_510050(force_refresh=force_refresh)
-options_df, opt_source = get_options_data(force_refresh=force_refresh)
+    # ── 标题 ─────────────────────────────────────────────
+    st.markdown("""
+    <div class="terminal-header">
+        <div>
+            <div class="main-title">VolGuard Pro Live</div>
+            <div class="sub-title">510050.SS options risk terminal · GARCH/BSADF/GEX/DEX · Streamlit realtime engine</div>
+        </div>
+        <div class="status-strip">
+            <span class="status-pill live">LIVE BUS</span>
+            <span class="status-pill">SWR cache</span>
+            <span class="status-pill">Snapshot-ready</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
-if force_refresh:
-    st.toast("数据总线更新指令已发送")
+    # ── 数据加载 ──────────────────────────────────────────
+    df_etf, source_etf = get_etf_510050(force_refresh=force_refresh)
+    options_df, opt_source = get_options_data(force_refresh=force_refresh)
 
-if df_etf is None or df_etf.empty:
-    st.error("无法加载上证50ETF基准数据，请检查网络或点击'强制更新数据总线'。")
-    st.stop()
+    if force_refresh:
+        st.toast("数据总线更新指令已发送")
 
-prices = df_etf['Close'].dropna()
-spot = float(prices.iloc[-1])
+    if df_etf is None or df_etf.empty:
+        st.error("无法加载上证50ETF基准数据，请检查网络或点击'强制更新数据总线'。")
+        st.stop()
 
-# 为期权数据添加隐含波动率（从价格反推）
-if options_df is not None and not options_df.empty:
-    try:
-        options_df = add_implied_volatility(options_df, spot)
-        logger.info(f"Added IV to {len(options_df)} option contracts")
-    except Exception as e:
-        logger.warning(f"Failed to add IV: {e}")
+    prices = df_etf['Close'].dropna()
+    spot = float(prices.iloc[-1])
 
-# ── 计算指标 (缓存) ────────────────────────────────────
-with st.spinner("GARCH VaR 分析中…"):
-    garch_result = _cached_garch(tuple(prices.round(6).tolist()))
-
-with st.spinner("BSADF 泡沫测试中…"):
-    bsadf_result = _cached_bsadf(tuple(prices.round(6).tolist()))
-
-returns      = np.log(prices / prices.shift(1)).dropna()
-change_pct   = float((prices.iloc[-1] / prices.iloc[-2] - 1) * 100)
-bsadf_stat   = bsadf_result.get('adf_stat', 0.0)
-bsadf_cv     = bsadf_result.get('cv', 2.0)
-triggered    = bsadf_result.get('is_significant', False)
-
-var_95    = garch_result.get('var_95', 0.02) * 100
-var_99    = garch_result.get('var_99', 0.03) * 100
-var_95_c  = garch_result.get('var_95_call', 0.02) * 100
-var_95_p  = garch_result.get('var_95_put', 0.02) * 100
-sigma_ann = garch_result.get('sigma_norm', 0.01) * np.sqrt(252) * 100
-
-# HV30
-hv30_val = float(returns.iloc[-30:].std() * np.sqrt(252) * 100) if len(returns) >= 30 else 0.0
-
-# Extract new R-style metrics
-robust_vol = garch_result.get('robust_vol', 0.01) * np.sqrt(252) * 100
-lambda_60 = garch_result.get('jump_lambda_60', 0.0) * 100
-
-# ── 计算 GEX/DEX 市场暴露 ──────────────────────────────
-gex_dex_result = {'gex_net': 0.0, 'dex_net': 0.0, 'max_pain_strike': spot}
-if options_df is not None and not options_df.empty:
-    try:
-        gex_dex_result = indicators.calculate_market_exposure(options_df, spot)
-    except Exception as e:
-        logger.warning(f"GEX/DEX calculation failed: {e}")
-
-gex_net = gex_dex_result.get('gex_net', 0.0)
-dex_net = gex_dex_result.get('dex_net', 0.0)
-max_pain = gex_dex_result.get('max_pain_strike', spot)
-gex_call = gex_dex_result.get('gex_call', 0.0)
-gex_put = gex_dex_result.get('gex_put', 0.0)
-
-# 信号生成
-if triggered:
-    signal    = "执行: 建立空仓"
-    action    = f"卖出偏离 {var_99:.1f}%–{otm:.0f}% 虚值合约"
-    sig_color = "color-orange"
-    card_cls  = "card-orange"
-else:
-    signal    = "状态: 观望戒备"
-    action    = f"BSADF({bsadf_stat:.2f}) < CV({bsadf_cv:.2f})"
-    sig_color = ""
-    card_cls  = ""
-
-# ── 4 核心数据面板 ─────────────────────────────────────
-st.markdown("<div style='font-size:0.9rem; font-weight:500; color:#787b86; text-transform:uppercase; letter-spacing:1px; margin:12px 0 10px;'>量化引擎参数</div>", unsafe_allow_html=True)
-c1, c2, c3, c4 = st.columns(4)
-
-with c1:
-    cc = "color-red" if change_pct < 0 else "color-green"
-    bc = "card-red" if change_pct < 0 else "card-green"
-    st.markdown(f"""
-    <div class="metric-card {bc}">
-        <div class="metric-title">510050.SS (底层标的)</div>
-        <div class="metric-value {cc}">{spot:.3f}</div>
-        <div class="metric-sub">波动: <span class="{cc}">{change_pct:+.2f}%</span> | 异常跳跃率(λ): {lambda_60:.1f}%</div>
-    </div>""", unsafe_allow_html=True)
-
-with c2:
-    iv_val = 0.0
-    if options_df is not None and '隐含波动率' in options_df.columns:
+    # 为期权数据添加隐含波动率（从价格反推）
+    if options_df is not None and not options_df.empty:
         try:
-            iv_val = float(pd.to_numeric(options_df['隐含波动率'], errors='coerce').mean())
-        except Exception:
-            pass
-    hv_gt_iv = "↑ HV>IV 溢价" if hv30_val > iv_val > 0 else ("↓ IV>HV 吃权" if iv_val > hv30_val else "─")
-    st.markdown(f"""
-    <div class="metric-card card-blue">
-        <div class="metric-title">HV30 / Avg IV</div>
-        <div class="metric-value color-blue">{hv30_val:.1f}% / {iv_val:.1f}%</div>
-        <div class="metric-sub">{hv_gt_iv} | 稳健GARCH σ≈{robust_vol:.1f}%</div>
-    </div>""", unsafe_allow_html=True)
+            options_df = add_implied_volatility(options_df, spot)
+            logger.info(f"Added IV to {len(options_df)} option contracts")
+        except Exception as e:
+            logger.warning(f"Failed to add IV: {e}")
 
-with c3:
-    st.markdown(f"""
-    <div class="metric-card card-red">
-        <div class="metric-title">VaR 95% 双向刚性防线</div>
-        <div class="metric-value color-red">Put ↓{var_95_p:.2f}% / Call ↑{var_95_c:.2f}%</div>
-        <div class="metric-sub">虚值空间低于任一边触发强制止损</div>
-        <div class="var-bar"></div>
-    </div>""", unsafe_allow_html=True)
+    # ── 计算指标 (缓存) ────────────────────────────────────
+    with st.spinner("GARCH VaR 分析中…"):
+        garch_result = _cached_garch(tuple(prices.round(6).tolist()))
 
-with c4:
-    st.markdown(f"""
-    <div class="metric-card {card_cls}">
-        <div class="metric-title">系统状态</div>
-        <div class="metric-value {sig_color}" style="font-size:1.0rem;">{signal}</div>
-        <div class="metric-sub">{action}</div>
-    </div>""", unsafe_allow_html=True)
+    with st.spinner("BSADF 泡沫测试中…"):
+        bsadf_result = _cached_bsadf(tuple(prices.round(6).tolist()))
 
-# ── GEX/DEX 市场暴露面板 ──────────────────────────────
-st.markdown("<div style='font-size:0.9rem; font-weight:500; color:#787b86; text-transform:uppercase; letter-spacing:1px; margin:18px 0 10px;'>Greeks 市场暴露 (Gamma/Delta Exposure)</div>", unsafe_allow_html=True)
-g1, g2, g3, g4 = st.columns(4)
+    dashboard = compute_dashboard_metrics(
+        etf_df=df_etf,
+        options_df=options_df,
+        garch_result=garch_result,
+        bsadf_result=bsadf_result,
+        risk_settings=RiskSettings(target_otm_pct=otm, stop_loss_pct=stop_loss, rv_threshold_pct=rv_threshold),
+        etf_source=source_etf,
+        options_source=opt_source,
+    )
+    returns      = np.log(prices / prices.shift(1)).dropna()
+    change_pct   = dashboard['change_pct']
+    bsadf_stat   = dashboard['bsadf_stat']
+    bsadf_cv     = dashboard['bsadf_cv']
+    triggered    = dashboard['bsadf_triggered']
+    var_95       = dashboard['var_95']
+    var_99       = dashboard['var_99']
+    var_95_c     = dashboard['var_95_call']
+    var_95_p     = dashboard['var_95_put']
+    sigma_ann    = dashboard['sigma_ann']
+    hv30_val     = dashboard['hv30']
+    robust_vol   = dashboard['robust_vol']
+    lambda_60    = dashboard['jump_lambda_60']
+    iv_val       = dashboard['iv_avg']
+    gex_net      = dashboard['gex_net']
+    dex_net      = dashboard['dex_net']
+    max_pain     = dashboard['max_pain']
+    gex_call     = dashboard['gex_call']
+    gex_put      = dashboard['gex_put']
+    signal       = dashboard['signal']
+    action       = dashboard['action']
+    sig_color    = "color-orange" if triggered else ""
+    card_cls     = "card-orange" if triggered else ""
 
-with g1:
-    gex_color = "color-green" if gex_net > 0 else "color-red"
-    gex_card = "card-green" if gex_net > 0 else "card-red"
-    st.markdown(f"""
-    <div class="metric-card {gex_card}">
-        <div class="metric-title">Net GEX (Gamma 暴露)</div>
-        <div class="metric-value {gex_color}">{gex_net:+.2f}B</div>
-        <div class="metric-sub">Call: {gex_call:.2f}B | Put: {gex_put:.2f}B</div>
-    </div>""", unsafe_allow_html=True)
-
-with g2:
-    dex_color = "color-blue"
-    st.markdown(f"""
-    <div class="metric-card card-blue">
-        <div class="metric-title">Net DEX (Delta 暴露)</div>
-        <div class="metric-value {dex_color}">{dex_net:+.2f}B</div>
-        <div class="metric-sub">做市商对冲方向性风险</div>
-    </div>""", unsafe_allow_html=True)
-
-with g3:
-    pain_diff = ((max_pain - spot) / spot * 100) if spot > 0 else 0
-    pain_color = "color-red" if pain_diff < -1 else ("color-green" if pain_diff > 1 else "")
-    st.markdown(f"""
-    <div class="metric-card">
-        <div class="metric-title">Max Pain 行权价</div>
-        <div class="metric-value {pain_color}">{max_pain:.3f}</div>
-        <div class="metric-sub">偏离现价: {pain_diff:+.2f}%</div>
-    </div>""", unsafe_allow_html=True)
-
-with g4:
-    gex_regime = "高波动" if abs(gex_net) > 1.0 else "低波动"
-    gex_regime_color = "color-orange" if abs(gex_net) > 1.0 else "color-blue"
-    st.markdown(f"""
-    <div class="metric-card">
-        <div class="metric-title">GEX 市场状态</div>
-        <div class="metric-value {gex_regime_color}" style="font-size:1.0rem;">{gex_regime}</div>
-        <div class="metric-sub">|GEX| > 1B 触发高波动预警</div>
-    </div>""", unsafe_allow_html=True)
-
-st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
-
-# ── 4-Pane 图表 ───────────────────────────────────────
-col_label, col_legend = st.columns([3, 2])
-with col_label:
-    st.markdown("<div style='font-size:0.9rem; font-weight:500; color:#d1d4dc;'>全景联动图: K线·布林带·BSADF·量能·HV/IV</div>", unsafe_allow_html=True)
-with col_legend:
     st.markdown(
-        "<div style='font-size:0.72rem; color:#787b86; text-align:right; padding-top:4px; font-family:monospace;'>"
-        "<span style='color:#2962ff;'>---</span> EMA5 &nbsp;"
-        "<span style='color:#ff9800;'>---</span> EMA20 &nbsp;"
-        "<span style='color:#9c27b0;'>- -</span> BB(20,2) &nbsp;"
-        "<span style='color:#f23645;'>- -</span> VaR 95%</div>",
+        f"<div style='display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:2px 0 12px;color:#8b98a5;font-size:0.76rem;'>"
+        f"<span>ETF: {source_etf} · Options: {opt_source}</span>"
+        f"<span>Generated: {dashboard['generated_at']}</span>"
+        f"</div>",
         unsafe_allow_html=True
     )
 
-chart = render_4pane_chart(df_etf, bsadf_result, var_95, options_df)
-if chart:
-    st.session_state.pop('chart_error', None)
-    _render_chart(chart, height="900px")
-else:
-    err = st.session_state.get('chart_error', 'Unknown error, check Streamlit logs')
-    with st.expander("Chart render error detail", expanded=True):
-        st.code(err, language="python")
+    # ── 4 核心数据面板 ─────────────────────────────────────
+    st.markdown("<div class='section-label'>Quant Engine</div>", unsafe_allow_html=True)
+    c1, c2, c3, c4 = st.columns(4)
 
-st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
+    with c1:
+        cc = "color-red" if change_pct < 0 else "color-green"
+        bc = "card-red" if change_pct < 0 else "card-green"
+        st.markdown(f"""
+        <div class="metric-card {bc}">
+            <div class="metric-title">510050.SS (底层标的)</div>
+            <div class="metric-value {cc}">{spot:.3f}</div>
+            <div class="metric-sub">波动: <span class="{cc}">{change_pct:+.2f}%</span> | 异常跳跃率(λ): {lambda_60:.1f}%</div>
+        </div>""", unsafe_allow_html=True)
 
-# ── 期权链雷达表格 ────────────────────────────────────
-st.markdown("<div style='font-size:0.9rem; font-weight:500; color:#d1d4dc; margin-bottom:8px;'>深度虚值期权雷达扫描仪</div>", unsafe_allow_html=True)
+    with c2:
+        hv_gt_iv = "↑ HV>IV 溢价" if hv30_val > iv_val > 0 else ("↓ IV>HV 吃权" if iv_val > hv30_val else "─")
+        st.markdown(f"""
+        <div class="metric-card card-blue">
+            <div class="metric-title">HV30 / Avg IV</div>
+            <div class="metric-value color-blue">{hv30_val:.1f}% / {iv_val:.1f}%</div>
+            <div class="metric-sub">{hv_gt_iv} | 稳健GARCH σ≈{robust_vol:.1f}%</div>
+        </div>""", unsafe_allow_html=True)
 
-if options_df is not None and not options_df.empty:
-    try:
-        # ── 字段提取 ─────────────────────────────────
-        want_cols = ['代码', '名称', '最新价', '行权价', '涨跌幅', '成交量', '持仓量', '隐含波动率', '买入价', '卖出价']
-        present   = [c for c in want_cols if c in options_df.columns]
-        show_df   = options_df[present].copy()
+    with c3:
+        st.markdown(f"""
+        <div class="metric-card card-red">
+            <div class="metric-title">VaR 95% 双向刚性防线</div>
+            <div class="metric-value color-red">Put ↓{var_95_p:.2f}% / Call ↑{var_95_c:.2f}%</div>
+            <div class="metric-sub">虚值空间低于任一边触发强制止损</div>
+            <div class="var-bar"></div>
+        </div>""", unsafe_allow_html=True)
 
-        # 数值化
-        for col in ['行权价', '最新价', '隐含波动率', '买入价', '卖出价', '成交量', '持仓量']:
-            if col in show_df.columns:
-                show_df[col] = pd.to_numeric(show_df[col], errors='coerce')
+    with c4:
+        st.markdown(f"""
+        <div class="metric-card {card_cls}">
+            <div class="metric-title">系统状态</div>
+            <div class="metric-value {sig_color}" style="font-size:1.0rem;">{signal}</div>
+            <div class="metric-sub">{action}</div>
+        </div>""", unsafe_allow_html=True)
 
-        # ── 区分认购/认沽方向计算 OTM（向量化优化）────────────────
-        show_df['类型'] = show_df['名称'].str.contains('购', na=False).map({True: '认购', False: '认沽'})
-        
-        # 向量化计算 OTM
-        is_call = show_df['类型'] == '认购'
-        is_put = show_df['类型'] == '认沽'
-        k = show_df['行权价']
-        
-        show_df['虚值空间(%)'] = 0.0
-        show_df.loc[is_call, '虚值空间(%)'] = ((k[is_call] - spot) / spot * 100).round(2)
-        show_df.loc[is_put, '虚值空间(%)'] = ((spot - k[is_put]) / spot * 100).round(2)
-        
-        show_df['VaR缓冲(%)'] = (show_df['虚值空间(%)'] - var_95).round(2)
+    # ── GEX/DEX 市场暴露面板 ──────────────────────────────
+    st.markdown("<div class='section-label'>Greeks Market Exposure</div>", unsafe_allow_html=True)
+    g1, g2, g3, g4 = st.columns(4)
 
-        # 买卖价差
-        if '买入价' in show_df.columns and '卖出价' in show_df.columns:
-            show_df['买卖价差'] = (show_df['卖出价'] - show_df['买入价']).round(4)
+    with g1:
+        gex_color = "color-green" if gex_net > 0 else "color-red"
+        gex_card = "card-green" if gex_net > 0 else "card-red"
+        st.markdown(f"""
+        <div class="metric-card {gex_card}">
+            <div class="metric-title">Net GEX (Gamma 暴露)</div>
+            <div class="metric-value {gex_color}">{gex_net:+.2f}B</div>
+            <div class="metric-sub">Call: {gex_call:.2f}B | Put: {gex_put:.2f}B</div>
+        </div>""", unsafe_allow_html=True)
 
-        show_df = show_df[show_df['行权价'] > 0]
-        show_df = show_df.fillna(0).sort_values('虚值空间(%)', ascending=False)
+    with g2:
+        dex_color = "color-blue"
+        st.markdown(f"""
+        <div class="metric-card card-blue">
+            <div class="metric-title">Net DEX (Delta 暴露)</div>
+            <div class="metric-value {dex_color}">{dex_net:+.2f}B</div>
+            <div class="metric-sub">做市商对冲方向性风险</div>
+        </div>""", unsafe_allow_html=True)
 
-        # 列排序
-        front = ['代码', '名称', '类型', '行权价', '最新价', '虚值空间(%)', 'VaR缓冲(%)']
-        back  = [c for c in show_df.columns if c not in front]
-        show_df = show_df[front + back]
+    with g3:
+        pain_diff = ((max_pain - spot) / spot * 100) if spot > 0 else 0
+        pain_color = "color-red" if pain_diff < -1 else ("color-green" if pain_diff > 1 else "")
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-title">Max Pain 行权价</div>
+            <div class="metric-value {pain_color}">{max_pain:.3f}</div>
+            <div class="metric-sub">偏离现价: {pain_diff:+.2f}%</div>
+        </div>""", unsafe_allow_html=True)
 
-        # 格式化字典
-        fmt = {'最新价': '{:.4f}', '行权价': '{:.3f}',
-               '虚值空间(%)': '{:.2f}%', 'VaR缓冲(%)': '{:.2f}%'}
-        if '隐含波动率' in show_df.columns: fmt['隐含波动率'] = '{:.1f}%'
-        if '涨跌幅' in show_df.columns:    fmt['涨跌幅']    = '{:.2f}%'
-        if '买卖价差' in show_df.columns:  fmt['买卖价差']  = '{:.4f}'
+    with g4:
+        gex_regime = "高波动" if abs(gex_net) > 1.0 else "低波动"
+        gex_regime_color = "color-orange" if abs(gex_net) > 1.0 else "color-blue"
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-title">GEX 市场状态</div>
+            <div class="metric-value {gex_regime_color}" style="font-size:1.0rem;">{gex_regime}</div>
+            <div class="metric-sub">|GEX| > 1B 触发高波动预警</div>
+        </div>""", unsafe_allow_html=True)
 
-        # 向量化高亮规则
-        def _highlight(row):
-            otm_v, buf_v, opt_type = row['虚值空间(%)'], row['VaR缓冲(%)'], row['类型']
-            stop = var_95_p if opt_type == '认沽' else var_95_c
-            
-            if otm_v >= otm and buf_v > 2.0:
-                return ['background-color: rgba(8,153,129,0.15); color:#089981; font-weight:600'] * len(row)
-            elif otm_v < stop_loss:
-                return ['color:#f23645; font-weight:600'] * len(row)
-            elif buf_v < 1.0:
-                return ['color:#f5a623'] * len(row)
-            return [''] * len(row)
+    st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
 
-        styled = (show_df.style
-            .apply(_highlight, axis=1)
-            .format(fmt, na_rep='—')
-            .set_properties(**{'text-align': 'right', 'border-color': 'var(--tv-border)'})
-            .set_table_styles([
-                {'selector': 'th', 'props': [
-                    ('background-color', '#1e222d'), ('color', '#787b86'),
-                    ('font-weight', '500'), ('border-bottom', '1px solid #2a2e39'),
-                    ('text-align', 'center'), ('font-size', '0.78rem')
-                ]},
-                {'selector': 'td', 'props': [('border-bottom', '1px solid #2a2e39'), ('font-size', '0.82rem')]},
-            ])
-        )
-
-        st.dataframe(styled, height=480, use_container_width=True, hide_index=True)
+    # ── 4-Pane 图表 ───────────────────────────────────────
+    col_label, col_legend = st.columns([3, 2])
+    with col_label:
+        st.markdown("<div class='section-label'>Four-pane Risk Chart</div>", unsafe_allow_html=True)
+    with col_legend:
         st.markdown(
-            f"<div style='font-size:0.78rem; color:#787b86; margin-top:6px;'>"
-            f"<b>图例</b>: <span style='color:#089981;'>■</span> 绿 = 深度虚值·安全垫充足 (&ge;{otm}% 且 VaR缓冲&gt;2%)&emsp;"
-            f"<span style='color:#f5a623;'>■</span> 黄 = VaR 缓冲不足 1%&emsp;"
-            f"<span style='color:#f23645;'>■</span> 红 = 已穿越止损线 (&lt;{stop_loss}%)&emsp;"
-            f"类型列区分认购/认沽，虚值方向已修正。</div>",
+            "<div style='font-size:0.72rem; color:#787b86; text-align:right; padding-top:4px; font-family:monospace;'>"
+            "<span style='color:#2962ff;'>---</span> EMA5 &nbsp;"
+            "<span style='color:#ff9800;'>---</span> EMA20 &nbsp;"
+            "<span style='color:#9c27b0;'>- -</span> BB(20,2) &nbsp;"
+            "<span style='color:#f23645;'>- -</span> VaR 95%</div>",
             unsafe_allow_html=True
         )
 
-    except Exception as e:
-        st.error(f"期权表格解析异常: {e}")
-        st.dataframe(options_df.head(50))
-else:
-    st.warning(f"期权盘口数据暂未就绪。数据接口状态: {opt_source}")
+    chart = render_4pane_chart(df_etf, bsadf_result, var_95, options_df)
+    if chart:
+        st.session_state.pop('chart_error', None)
+        _render_chart(chart, height="900px")
+    else:
+        err = st.session_state.get('chart_error', 'Unknown error, check Streamlit logs')
+        with st.expander("Chart render error detail", expanded=True):
+            st.code(err, language="python")
 
-# ── 底部状态栏 ────────────────────────────────────────
-st.markdown(
-    f"<div style='text-align:right; color:#787b86; margin-top:16px; font-size:0.72rem; border-top:1px solid #2a2e39; padding-top:8px;'>"
-    f"VolGuard Pro v6.1 &nbsp;|&nbsp; 数据源: yfinance + Sina/akshare &nbsp;|&nbsp; {source_etf} / {opt_source} "
-    f"&nbsp;|&nbsp; {datetime.now().strftime('%H:%M:%S')}</div>",
-    unsafe_allow_html=True
-)
+    st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
+
+    # ── 期权链雷达表格 ────────────────────────────────────
+    st.markdown("<div class='section-label'>OTM Option Radar</div>", unsafe_allow_html=True)
+
+    if options_df is not None and not options_df.empty:
+        try:
+            # ── 字段提取 ─────────────────────────────────
+            want_cols = ['代码', '名称', '最新价', '行权价', '涨跌幅', '成交量', '持仓量', '隐含波动率', '买入价', '卖出价']
+            present   = [c for c in want_cols if c in options_df.columns]
+            show_df   = options_df[present].copy()
+
+            # 数值化
+            for col in ['行权价', '最新价', '隐含波动率', '买入价', '卖出价', '成交量', '持仓量']:
+                if col in show_df.columns:
+                    show_df[col] = pd.to_numeric(show_df[col], errors='coerce')
+
+            # ── 区分认购/认沽方向计算 OTM（向量化优化）────────────────
+            show_df['类型'] = show_df.apply(lambda row: infer_option_type(row.to_dict()), axis=1)
+
+            # 向量化计算 OTM
+            is_call = show_df['类型'] == '认购'
+            is_put = show_df['类型'] == '认沽'
+            k = show_df['行权价']
+
+            show_df['虚值空间(%)'] = 0.0
+            show_df.loc[is_call, '虚值空间(%)'] = ((k[is_call] - spot) / spot * 100).round(2)
+            show_df.loc[is_put, '虚值空间(%)'] = ((spot - k[is_put]) / spot * 100).round(2)
+
+            show_df['VaR缓冲(%)'] = (show_df['虚值空间(%)'] - var_95).round(2)
+
+            # 买卖价差
+            if '买入价' in show_df.columns and '卖出价' in show_df.columns:
+                show_df['买卖价差'] = (show_df['卖出价'] - show_df['买入价']).round(4)
+
+            show_df = show_df[show_df['行权价'] > 0]
+            show_df = show_df.fillna(0).sort_values('虚值空间(%)', ascending=False)
+
+            # 列排序
+            front = ['代码', '名称', '类型', '行权价', '最新价', '虚值空间(%)', 'VaR缓冲(%)']
+            back  = [c for c in show_df.columns if c not in front]
+            show_df = show_df[front + back]
+
+            # 格式化字典
+            fmt = {'最新价': '{:.4f}', '行权价': '{:.3f}',
+                   '虚值空间(%)': '{:.2f}%', 'VaR缓冲(%)': '{:.2f}%'}
+            if '隐含波动率' in show_df.columns: fmt['隐含波动率'] = '{:.1f}%'
+            if '涨跌幅' in show_df.columns:    fmt['涨跌幅']    = '{:.2f}%'
+            if '买卖价差' in show_df.columns:  fmt['买卖价差']  = '{:.4f}'
+
+            # 向量化高亮规则
+            def _highlight(row):
+                otm_v, buf_v, opt_type = row['虚值空间(%)'], row['VaR缓冲(%)'], row['类型']
+                stop = var_95_p if opt_type == '认沽' else var_95_c
+
+                if otm_v >= otm and buf_v > 2.0:
+                    return ['background-color: rgba(8,153,129,0.15); color:#089981; font-weight:600'] * len(row)
+                elif otm_v < stop_loss:
+                    return ['color:#f23645; font-weight:600'] * len(row)
+                elif buf_v < 1.0:
+                    return ['color:#f5a623'] * len(row)
+                return [''] * len(row)
+
+            styled = (show_df.style
+                .apply(_highlight, axis=1)
+                .format(fmt, na_rep='—')
+                .set_properties(**{'text-align': 'right', 'border-color': 'var(--tv-border)'})
+                .set_table_styles([
+                    {'selector': 'th', 'props': [
+                        ('background-color', '#1e222d'), ('color', '#787b86'),
+                        ('font-weight', '500'), ('border-bottom', '1px solid #2a2e39'),
+                        ('text-align', 'center'), ('font-size', '0.78rem')
+                    ]},
+                    {'selector': 'td', 'props': [('border-bottom', '1px solid #2a2e39'), ('font-size', '0.82rem')]},
+                ])
+            )
+
+            st.dataframe(styled, height=480, use_container_width=True, hide_index=True)
+            st.markdown(
+                f"<div style='font-size:0.78rem; color:#787b86; margin-top:6px;'>"
+                f"<b>图例</b>: <span style='color:#089981;'>■</span> 绿 = 深度虚值·安全垫充足 (&ge;{otm}% 且 VaR缓冲&gt;2%)&emsp;"
+                f"<span style='color:#f5a623;'>■</span> 黄 = VaR 缓冲不足 1%&emsp;"
+                f"<span style='color:#f23645;'>■</span> 红 = 已穿越止损线 (&lt;{stop_loss}%)&emsp;"
+                f"类型列区分认购/认沽，虚值方向已修正。</div>",
+                unsafe_allow_html=True
+            )
+
+        except Exception as e:
+            st.error(f"期权表格解析异常: {e}")
+            st.dataframe(options_df.head(50))
+    else:
+        st.warning(f"期权盘口数据暂未就绪。数据接口状态: {opt_source}")
+
+    # ── 底部状态栏 ────────────────────────────────────────
+    st.markdown(
+        f"<div style='text-align:right; color:#787b86; margin-top:16px; font-size:0.72rem; border-top:1px solid #2a2e39; padding-top:8px;'>"
+        f"VolGuard Pro v6.1 &nbsp;|&nbsp; 数据源: yfinance + Sina/akshare &nbsp;|&nbsp; {source_etf} / {opt_source} "
+        f"&nbsp;|&nbsp; {datetime.now().strftime('%H:%M:%S')}</div>",
+        unsafe_allow_html=True
+    )
+
+
+if __name__ == "__main__":
+    main()

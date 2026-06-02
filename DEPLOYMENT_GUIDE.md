@@ -1,220 +1,115 @@
-# Streamlit Cloud 部署指南
+# 部署指南：Streamlit 主站 + Cloudflare Pages 展示站
 
-## 快速部署步骤
+VolGuard Pro 推荐双站部署：
 
-### 1. 访问 Streamlit Cloud
-打开浏览器访问：https://share.streamlit.io/
+- **Streamlit 主站**：运行 `app.py`，负责实时刷新、Python 指标计算和交互式风控终端。
+- **Cloudflare Pages 展示站**：部署 `public/`，读取 `public/data/latest.json`，负责公开展示和快照访问。
 
-### 2. 登录 GitHub 账号
-使用您的 GitHub 账号登录 Streamlit Cloud
+## 1. Streamlit 主站
 
-### 3. 部署应用
+### Streamlit Cloud
 
-点击 **"New app"** 按钮，填写以下信息：
+创建应用时填写：
 
-- **Repository**: `gaaiyun/SH_50_Index_Option_Trading_Signals`
-- **Branch**: `main`
-- **Main file path**: `app.py`
-- **App URL** (可选): 自定义 URL 或使用默认
+- Repository: `gaaiyun/SH_50_Index_Option_Trading_Signals`
+- Branch: `main`
+- Main file path: `app.py`
+- Python version: `3.11` 或 `3.12`
 
-### 4. 高级设置（可选）
+可选 secrets：
 
-点击 **"Advanced settings"** 配置：
+```toml
+pushplus_token = "your_pushplus_token_here"
+pushplus_secret = "your_pushplus_secret_here"
+```
 
-- **Python version**: `3.11` (推荐)
-- **Secrets**: 如需配置推送服务，添加以下内容：
-  ```toml
-  [pushplus]
-  token = "your_pushplus_token_here"
-  ```
-
-### 5. 点击 Deploy
-
-等待 2-3 分钟，应用将自动部署完成。
-
----
-
-## 验证部署成功
-
-### 检查日志
-
-部署完成后，点击右下角的 **"Manage app"** → **"Logs"**，查看日志输出。
-
-**关键日志验证点**：
-
-1. **Sina 月份解析成功**：
-   ```
-   INFO:data_sources:Sina months OK: ['2603', '2604', '2606', '2609']
-   ```
-
-2. **期权数据加载成功**：
-   ```
-   INFO:data_sources:Sina options loaded
-   ```
-
-3. **无 streamlit-echarts 错误**：
-   - 不应出现 `ImportError: cannot import name 'st_pyecharts'`
-   - 不应出现 503 错误
-
-### 检查应用界面
-
-1. **侧边栏显示正常**：
-   - 数据源选择器
-   - 刷新按钮
-   - 筛选条件
-
-2. **主界面显示数据**：
-   - 期权链表格有数据
-   - 图表正常渲染（或显示"图表渲染失败，已回退到表格模式"）
-
-3. **无错误提示**：
-   - 不应出现红色错误框
-   - 数据源消息显示 "Sina options loaded"
-
----
-
-## 常见问题排查
-
-### 问题 1: 503 Service Unavailable
-
-**原因**: 依赖安装失败或启动超时
-
-**解决方案**:
-1. 检查 `requirements.txt` 是否正确
-2. 确认 `streamlit-echarts>=0.4.0,<0.5` 版本锁定
-3. 重新部署应用
-
-### 问题 2: 数据加载失败
-
-**原因**: Sina 接口被限流或网络问题
-
-**解决方案**:
-1. 查看日志中的具体错误信息
-2. 等待几分钟后刷新页面（重试机制会自动处理）
-3. 如持续失败，检查 Sina 接口是否可访问
-
-### 问题 3: 图表不显示
-
-**原因**: streamlit-echarts 版本问题
-
-**解决方案**:
-1. 检查日志是否有 echarts 相关错误
-2. 应用会自动回退到表格模式，功能不受影响
-3. 确认 `requirements.txt` 中版本为 `>=0.4.0,<0.5`
-
----
-
-## 手动触发重新部署
-
-如果需要重新部署：
-
-1. 在 Streamlit Cloud 控制台，点击应用右侧的 **"⋮"** 菜单
-2. 选择 **"Reboot app"** 重启应用
-3. 或选择 **"Delete app"** 后重新创建
-
----
-
-## 本地测试（推荐先本地验证）
-
-在部署到 Cloud 之前，建议先本地测试：
+### 本地验证
 
 ```bash
-# 1. 安装依赖
 pip install -r requirements.txt
-
-# 2. 运行测试脚本
-python test_complete.py
-python test_enhanced.py
-
-# 3. 启动应用
+python -m pytest tests/ -q -m "not online"
 streamlit run app.py
-
-# 4. 浏览器访问
-# 打开 http://localhost:8501
 ```
 
-**预期结果**：
-- `test_complete.py`: Sina 月份解析和期权数据测试通过
-- `test_enhanced.py`: Sina 数据源（带重试）测试通过
-- 应用启动无错误，数据正常显示
+主站应显示：
 
----
+- `VolGuard Pro Live`
+- ETF / Options 数据状态
+- Quant Engine 四个核心卡片
+- Greeks Market Exposure
+- Four-pane Risk Chart
+- OTM Option Radar
 
-## 监控和维护
+点击“强制更新数据总线”后，页面应保持可用；后台会刷新 ETF 与期权缓存。
 
-### 定期检查
+## 2. Cloudflare Pages 展示站
 
-1. **每周检查一次日志**：
-   - 确认数据源稳定性
-   - 查看是否有新的错误或警告
+Cloudflare Pages 不直接运行 Streamlit，也不直接执行 `arch`、`statsmodels`、`akshare` 等 Python 计算。它只托管 `public/` 静态文件，并读取 JSON 快照。
 
-2. **数据源健康度**：
-   - Sina 数据源应为主要数据来源
-   - 如 Sina 频繁失败，考虑切换到备用数据源
+### 本地生成快照
 
-3. **性能监控**：
-   - 页面加载时间应在 3-5 秒内
-   - 数据刷新时间应在 1-2 秒内
-
-### 更新应用
-
-当 GitHub 仓库有新提交时：
-
-1. Streamlit Cloud 会自动检测更新
-2. 点击 **"Reboot app"** 应用最新代码
-3. 或等待自动重启（通常在几分钟内）
-
----
-
-## 增强功能说明
-
-### 反爬虫策略
-
-- ✅ **重试机制**: 失败自动重试 3 次，带指数退避
-- ✅ **随机 User-Agent**: 每次请求随机选择 UA，降低被识别风险
-- ✅ **请求延迟**: 重试时自动添加随机延迟
-
-### 数据清洗
-
-- ✅ **移除无效数据**: 价格为 0、行权价为 0 的数据
-- ✅ **移除异常波动**: 涨跌幅超过 ±50% 的数据
-- ✅ **填充缺失值**: 自动填充数值和字符串列的缺失值
-
-### 数据源优先级
-
-```
-Sina (主源) → yfinance (备用) → 东方财富 (可选)
+```bash
+python scripts/export_snapshot.py --output public/data/latest.json
 ```
 
----
+如果希望先尝试在线拉取：
 
-## 技术支持
+```bash
+python scripts/export_snapshot.py --refresh --output public/data/latest.json
+```
 
-如遇问题，请查看：
+### 本地预览
 
-1. **GitHub Issues**: https://github.com/gaaiyun/SH_50_Index_Option_Trading_Signals/issues
-2. **项目文档**:
-   - `OPTIMIZATION_SUMMARY.md` - 修复总结
-   - `REFERENCE_PROJECTS.md` - 参考项目
-3. **测试脚本**:
-   - `test_complete.py` - 完整功能测试
-   - `test_enhanced.py` - 增强功能测试
+```bash
+python -m http.server 8787 --bind 127.0.0.1 --directory public
+```
 
----
+打开 `http://127.0.0.1:8787/`。页面按钮“刷新快照”会重新读取 `data/latest.json`。
 
-## 部署清单
+## 3. 定时快照 workflow
 
-部署前确认：
+`.github/workflows/pages-snapshot.yml` 每 30 分钟运行一次，也支持手动触发：
 
-- [x] 代码已推送到 GitHub
-- [x] `requirements.txt` 版本已锁定
-- [x] 本地测试通过
-- [x] 日志输出正常
-- [ ] Streamlit Cloud 账号已登录
-- [ ] 应用已创建并部署
-- [ ] 部署日志已检查
-- [ ] 应用界面正常显示
+1. 安装 Python 依赖
+2. 运行 `python scripts/export_snapshot.py --refresh --output public/data/latest.json`
+3. 上传 `public/` artifact
+4. 如果配置了 Cloudflare secrets，则部署到 Cloudflare Pages
 
----
+需要配置：
 
-**祝部署顺利！** 🚀
+- Repository secret: `CLOUDFLARE_API_TOKEN`
+- Repository secret: `CLOUDFLARE_ACCOUNT_ID`
+- Repository variable: `CLOUDFLARE_PAGES_PROJECT`，默认可用 `sh50-volguard`
+
+如果 secrets 未配置，workflow 仍会生成并上传 artifact，但不会部署到 Cloudflare。
+
+## 4. 数据与刷新边界
+
+- Streamlit 主站：按钮触发后台刷新，可实时重新拉数据并重新计算。
+- Pages 展示站：按钮只重新拉取最新 JSON；JSON 新旧取决于 GitHub Actions 最近一次生成时间。
+- 若 Sina / yfinance 网络失败，主站和快照脚本会回退到本地缓存。
+
+## 5. 排查
+
+### Streamlit 首屏慢
+
+BSADF 已做响应优化：当前信号完整扫描，历史曲线采样扫描。如果仍慢，优先检查数据量、`arch` / `statsmodels` 安装和服务器 CPU。
+
+### Pages 显示 Snapshot load failed
+
+检查：
+
+- `public/data/latest.json` 是否存在
+- JSON 是否可通过浏览器访问
+- Cloudflare Pages 的部署目录是否为 `public/`
+
+### 期权 GEX/DEX 为 0
+
+确认期权数据至少包含：
+
+- `行权价`
+- `隐含波动率`
+- `持仓量`
+- `名称` 或 `类型` / `option_type`
+
+真实 Sina 缓存中 `名称` 可能只是 `510050`，此时方向会从 `类型` / `option_type` 判断。

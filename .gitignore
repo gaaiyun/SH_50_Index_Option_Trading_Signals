@@ -2,6 +2,8 @@ __pycache__/
 .pytest_cache/
 .vscode/
 .devcontainer/
+.superpowers/
+.wrangler/
 *.pyc
 
 # 缓存数据目录
