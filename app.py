@@ -47,6 +47,7 @@ def _render_chart(chart, height="900px"):
 from strategy.indicators import StrategyIndicators
 from data_sources import fetch_50etf_options_sina, fetch_50etf_options_yfinance, add_implied_volatility
 from dashboard_core import RiskSettings, compute_dashboard_metrics, infer_option_type
+from push_client import get_push_client
 
 # ══════════════════════════════════════════════════════
 # 日志配置
@@ -67,6 +68,7 @@ def _get_secret(key: str) -> str:
         return os.environ.get(key.upper(), "")
 
 PUSHPLUS_TOKEN = _get_secret("pushplus_token")
+PUSHPLUS_SECRET = _get_secret("pushplus_secret")
 
 # ══════════════════════════════════════════════════════
 # Streamlit 页面配置
@@ -759,7 +761,20 @@ def main() -> None:
         if push_enabled and not PUSHPLUS_TOKEN:
             st.warning("Token 未配置，请在 .streamlit/secrets.toml 中设置 pushplus_token")
         elif push_enabled:
-            st.success("推送通道已激活")
+            push_client = get_push_client(PUSHPLUS_TOKEN, PUSHPLUS_SECRET)
+            if push_client:
+                st.success("推送客户端已就绪")
+                if st.button("发送测试推送", use_container_width=True):
+                    result = push_client.send_alert(
+                        "通道测试",
+                        f"VolGuard Pro PushPlus 通道测试\n\n时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                    )
+                    if result.get("success"):
+                        st.success("测试推送已发送")
+                    else:
+                        st.error(f"测试推送失败: {result.get('error') or result.get('message') or '未知错误'}")
+            else:
+                st.warning("推送客户端初始化失败，请检查 PushPlus 配置")
         st.markdown("<hr style='border-color:#2a2e39; margin:10px 0;'>", unsafe_allow_html=True)
         force_refresh = st.button("强制更新数据总线", use_container_width=True)
 

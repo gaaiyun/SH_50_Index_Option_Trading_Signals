@@ -76,6 +76,12 @@ pushplus_token  = "your_token_here"
 pushplus_secret = "your_secret_here"
 ```
 
+侧栏状态说明：
+
+- “推送客户端已就绪”：只表示 Streamlit 已读取到配置并创建客户端。
+- “发送测试推送”：会真实调用 PushPlus API。只有测试消息收到后，才能确认通道通畅。
+- 所有 token / secret 都必须放在 `.streamlit/secrets.toml`、Streamlit Cloud Secrets 或环境变量中，不得提交到仓库。
+
 密钥文件已在 `.gitignore` 中排除，绝不提交至版本控制。
 
 ---

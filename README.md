@@ -88,7 +88,9 @@ pushplus_token = "your_token"
 pushplus_secret = "your_secret"
 ```
 
-也可以通过环境变量 `PUSHPLUS_TOKEN` 注入。
+也可以通过环境变量 `PUSHPLUS_TOKEN` / `PUSHPLUS_SECRET` 注入。
+
+Streamlit 侧栏里的“推送客户端已就绪”只代表配置已读取并创建客户端。要验证真实通道，请点击侧栏的“发送测试推送”；测试按钮只显示成功或失败状态，不会暴露 token 或 secret。
 
 ## 部署
 

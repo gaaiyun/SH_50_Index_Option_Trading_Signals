@@ -23,6 +23,15 @@ pushplus_token = "your_pushplus_token_here"
 pushplus_secret = "your_pushplus_secret_here"
 ```
 
+部署后如需验证 PushPlus：
+
+1. 打开 Streamlit 主站。
+2. 侧栏勾选“启用 PushPlus 推送”。
+3. 点击“发送测试推送”。
+4. 页面显示“测试推送已发送”且 PushPlus 收到消息，才说明真实通道通畅。
+
+不要把 `pushplus_token` 或 `pushplus_secret` 写入 README、Issue、PR 或提交历史。
+
 ### 本地验证
 
 ```bash
@@ -78,7 +87,7 @@ python -m http.server 8787 --bind 127.0.0.1 --directory public
 需要配置：
 
 - Repository secret: `CLOUDFLARE_API_TOKEN`
-- Repository secret: `CLOUDFLARE_ACCOUNT_ID`
+- Repository variable: `CLOUDFLARE_ACCOUNT_ID`
 - Repository variable: `CLOUDFLARE_PAGES_PROJECT`，默认可用 `sh50-volguard`
 
 如果 secrets 未配置，workflow 仍会生成并上传 artifact，但不会部署到 Cloudflare。
