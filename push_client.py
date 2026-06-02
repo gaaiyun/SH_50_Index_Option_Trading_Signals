@@ -57,18 +57,20 @@ class PushPlus:
             "channel": channel,
         }
 
-        if self.secret:
-            payload["timestamp"] = str(int(time.time() * 1000))
-            payload["sign"] = self._generate_signature(payload["timestamp"])
-
         try:
-            resp = requests.post(self.API_URL, json=payload, timeout=10)
+            resp = requests.post(
+                self.API_URL,
+                json=payload,
+                headers={"Content-Type": "application/json"},
+                timeout=10,
+            )
             resp.raise_for_status()
             result = resp.json()
             return {
                 "success": result.get("code") == 200,
                 "code": result.get("code"),
                 "msg": result.get("msg"),
+                "message": result.get("message"),
                 "data": result.get("data"),
             }
         except Exception as exc:
@@ -77,7 +79,9 @@ class PushPlus:
 
     def _generate_signature(self, timestamp: str) -> str:
         """
-        生成签名 — 正确顺序: timestamp + token (PushPlus API 规范)
+        生成开放接口签名候选值。
+
+        普通消息发送接口 /send 不使用 secret/sign；secretKey 属于开放接口 AccessKey 流程。
         """
         message = f"{timestamp}{self.token}"
         if self.secret:

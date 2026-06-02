@@ -772,7 +772,14 @@ def main() -> None:
                     if result.get("success"):
                         st.success("测试推送已发送")
                     else:
-                        st.error(f"测试推送失败: {result.get('error') or result.get('message') or '未知错误'}")
+                        detail = (
+                            result.get("error")
+                            or result.get("msg")
+                            or result.get("message")
+                            or result.get("data")
+                            or f"code={result.get('code')}"
+                        )
+                        st.error(f"测试推送失败: {detail}")
             else:
                 st.warning("推送客户端初始化失败，请检查 PushPlus 配置")
         st.markdown("<hr style='border-color:#2a2e39; margin:10px 0;'>", unsafe_allow_html=True)

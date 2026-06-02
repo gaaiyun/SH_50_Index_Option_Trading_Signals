@@ -68,12 +68,12 @@
 | 密钥 | 来源 | 说明 |
 |------|------|------|
 | `pushplus_token` | `.streamlit/secrets.toml` 或环境变量 `PUSHPLUS_TOKEN` | PushPlus 推送 Token |
-| `pushplus_secret` | `.streamlit/secrets.toml` 或环境变量 `PUSHPLUS_SECRET` | PushPlus 签名密钥 |
+| `pushplus_secret` | `.streamlit/secrets.toml` 或环境变量 `PUSHPLUS_SECRET` | 可选；普通 `/send` 消息接口不需要，开放接口 AccessKey 流程才会用到 |
 
 secrets.toml 示例：
 ```toml
 pushplus_token  = "your_token_here"
-pushplus_secret = "your_secret_here"
+pushplus_secret = ""
 ```
 
 侧栏状态说明：

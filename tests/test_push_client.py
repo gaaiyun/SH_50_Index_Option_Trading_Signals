@@ -35,6 +35,17 @@ class TestPushPlusSend:
         assert out["success"] is False
         assert out.get("code") == 400
 
+    def test_secret_does_not_add_unsupported_send_fields(self):
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {"code": 200, "msg": "ok", "data": None}
+        mock_resp.raise_for_status = MagicMock()
+        with patch("push_client.requests.post", return_value=mock_resp) as mpost:
+            client = PushPlus("test_token", "test_secret")
+            client.send("标题", "内容")
+        payload = mpost.call_args[1]["json"]
+        assert "sign" not in payload
+        assert "timestamp" not in payload
+
     def test_send_signal_builds_title_and_content(self):
         mock_resp = MagicMock()
         mock_resp.json.return_value = {"code": 200, "msg": "ok"}

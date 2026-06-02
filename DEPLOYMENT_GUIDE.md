@@ -20,7 +20,7 @@ VolGuard Pro 推荐双站部署：
 
 ```toml
 pushplus_token = "your_pushplus_token_here"
-pushplus_secret = "your_pushplus_secret_here"
+pushplus_secret = ""  # 可选；普通 /send 消息接口不需要
 ```
 
 部署后如需验证 PushPlus：

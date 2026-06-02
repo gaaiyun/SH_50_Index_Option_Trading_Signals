@@ -85,7 +85,7 @@ python -m pytest tests/ -q -m "not online"
 
 ```toml
 pushplus_token = "your_token"
-pushplus_secret = "your_secret"
+pushplus_secret = ""  # 可选；普通 /send 消息接口不需要
 ```
 
 也可以通过环境变量 `PUSHPLUS_TOKEN` / `PUSHPLUS_SECRET` 注入。
